@@ -1,0 +1,22 @@
+{
+  "rules": [
+    {
+      "name": "no-debugger-statement",
+      "severity": "warning",
+      "pattern": "\\bdebugger\\s*;",
+      "message": "Avoid committing debugger statements.",
+      "fix_hint": "Remove debugger statement before merging.",
+      "file_extensions": ["js", "ts", "tsx"],
+      "bypass_ml": true
+    },
+    {
+      "name": "todo-with-ticket",
+      "severity": "info",
+      "pattern": "TODO(?!\\s*:\\s*[A-Z]+-\\d+)",
+      "flags": "i",
+      "message": "TODO should reference a ticket id (e.g. TODO: PROJ-123).",
+      "fix_hint": "Add a tracking ticket id in TODO comments.",
+      "file_extensions": ["js", "ts", "py"]
+    }
+  ]
+}
