@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+	--bg-base: #0c0c11;
+	--bg-surface: #13131a;
+	--bg-elevated: #1c1c28;
+	--bg-overlay: #23232f;
+
+	--text-primary: #eeedf5;
+	--text-secondary: #9490a8;
+	--text-muted: #55526a;
+	--text-code: #c4bfdf;
+
+	--critical: #f04f6a;
+	--critical-bg: rgba(240, 79, 106, 0.1);
+	--high: #f0a030;
+	--high-bg: rgba(240, 160, 48, 0.1);
+	--medium: #4a90d9;
+	--medium-bg: rgba(74, 144, 217, 0.1);
+	--info: #2ab880;
+	--info-bg: rgba(42, 184, 128, 0.1);
+
+	--accent: #6e56cf;
+	--accent-hover: #7d65de;
+	--accent-muted: rgba(110, 86, 207, 0.12);
+
+	--border-subtle: rgba(255, 255, 255, 0.055);
+	--border-default: rgba(255, 255, 255, 0.1);
+	--border-strong: rgba(255, 255, 255, 0.16);
+}
+
+@layer base {
+
+	html,
+	body,
+	#__next {
+		min-height: 100%;
+	}
+
+	body {
+		background: var(--bg-base);
+		color: var(--text-primary);
+		font-family: var(--font-geist-sans), system-ui, sans-serif;
+		font-size: 13px;
+		line-height: 1.5;
+	}
+
+	code,
+	pre,
+	.mono {
+		font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+		line-height: 1.45;
+		color: var(--text-code);
+	}
+
+	* {
+		border-color: var(--border-subtle);
+	}
+}
