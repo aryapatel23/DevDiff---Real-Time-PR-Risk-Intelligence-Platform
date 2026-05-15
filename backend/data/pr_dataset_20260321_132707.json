@@ -1,0 +1,148 @@
+{
+  "generated_at": "2026-03-21T13:27:07.909Z",
+  "source_repos": [
+    {
+      "owner": "facebook",
+      "repo": "react"
+    },
+    {
+      "owner": "nodejs",
+      "repo": "node"
+    }
+  ],
+  "requested_limit_per_repo": 1,
+  "collected_count": 2,
+  "items": [
+    {
+      "pr_id": 3075589497,
+      "pr_number": 35297,
+      "repo_owner": "facebook",
+      "repo_name": "react",
+      "repo_full_name": "facebook/react",
+      "title": "[react-reconciler] Fix typos in comments",
+      "body": "## Summary\r\n\r\nFix typos in comments within the react-reconciler package:\r\nreconcilation → reconciliation\r\npasssed → passed\r\nmuliple → multiple\r\ncommmit → commit\r\ndeletiong → deletion\r\nbecuase → because\r\nudpates → updates\r\n\r\n## How did you test this change?\r\n\r\nThis change only fixes typos in code comments. No functional changes were made, so no additional testing is required.\r\n",
+      "state": "closed",
+      "merged_at": null,
+      "created_at": "2025-12-05T15:31:19Z",
+      "updated_at": "2026-03-21T05:21:05Z",
+      "html_url": "https://github.com/facebook/react/pull/35297",
+      "author": "yujiteshima",
+      "labels": [
+        "CLA Signed",
+        "Resolution: Stale"
+      ],
+      "additions": 7,
+      "deletions": 7,
+      "files_changed_count": 6,
+      "files": [
+        {
+          "filename": "packages/react-reconciler/src/ReactChildFiber.js",
+          "patch": "@@ -79,7 +79,7 @@ import {readContextDuringReconciliation} from './ReactFiberNewContext';\n \n import {runWithFiberInDEV} from './ReactCurrentFiber';\n \n-// This tracks the thenables that are unwrapped during reconcilation.\n+// This tracks the thenables that are unwrapped during reconciliation.\n let thenableState: ThenableState | null = null;\n let thenableIndexCounter: number = 0;\n ",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 1,
+          "changes": 2
+        },
+        {
+          "filename": "packages/react-reconciler/src/ReactFiberBeginWork.js",
+          "patch": "@@ -2037,7 +2037,7 @@ function updateHostHoistable(\n   // the host implementation of getResource to consider children in the\n   // resource construction but they will otherwise be discarded. In practice\n   // this precludes all but the simplest children and Host specific warnings\n-  // should be implemented to warn when children are passsed when otherwise not\n+  // should be implemented to warn when children are passed when otherwise not\n   // expected\n   return null;\n }\n@@ -4202,7 +4202,7 @@ function beginWork(\n     didReceiveUpdate = false;\n \n     if (getIsHydrating() && isForkedChild(workInProgress)) {\n-      // Check if this child belongs to a list of muliple children in\n+      // Check if this child belongs to a list of multiple children in\n       // its parent.\n       //\n       // In a true multi-threaded implementation, we would render children on",
+          "status": "modified",
+          "additions": 2,
+          "deletions": 2,
+          "changes": 4
+        },
+        {
+          "filename": "packages/react-reconciler/src/ReactFiberCommitViewTransitions.js",
+          "patch": "@@ -755,7 +755,7 @@ export function measureUpdateViewTransition(\n   gesture: boolean,\n ): boolean {\n   // If this was a gesture then which Fiber was used for the \"old\" vs \"new\" state is reversed.\n-  // We still need to treat \"finishedWork\" as the Fiber that contains the flags for this commmit.\n+  // We still need to treat \"finishedWork\" as the Fiber that contains the flags for this commit.\n   const oldFiber = gesture ? finishedWork : current;\n   const newFiber = gesture ? current : finishedWork;\n   const props: ViewTransitionProps = newFiber.memoizedProps;",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 1,
+          "changes": 2
+        },
+        {
+          "filename": "packages/react-reconciler/src/ReactFiberCommitWork.js",
+          "patch": "@@ -5013,7 +5013,7 @@ export function disconnectPassiveEffect(finishedWork: Fiber): void {\n         HookPassive,\n       );\n       // When disconnecting passive effects, we fire the effects in the same\n-      // order as during a deletiong: parent before child\n+      // order as during a deletion: parent before child\n       recursivelyTraverseDisconnectPassiveEffects(finishedWork);\n       break;\n     }",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 1,
+          "changes": 2
+        },
+        {
+          "filename": "packages/react-reconciler/src/ReactFiberCompleteWork.js",
+          "patch": "@@ -1258,7 +1258,7 @@ function completeWork(\n                 markUpdate(workInProgress);\n               }\n             } else {\n-              // We use the updateHostComponent path becuase it produces\n+              // We use the updateHostComponent path because it produces\n               // the update queue we need for Hoistables.\n               updateHostComponent(\n                 current,",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 1,
+          "changes": 2
+        },
+        {
+          "filename": "packages/react-reconciler/src/ReactFiberHooks.js",
+          "patch": "@@ -2015,7 +2015,7 @@ function rerenderOptimistic<S, A>(\n   // the passthrough value changed.\n   //\n   // So instead of a forked re-render implementation that knows how to handle\n-  // render phase udpates, we can use the same implementation as during a\n+  // render phase updates, we can use the same implementation as during a\n   // regular mount or update.\n   const hook = updateWorkInProgressHook();\n ",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 1,
+          "changes": 2
+        }
+      ],
+      "review_comments": []
+    },
+    {
+      "pr_id": 3428325597,
+      "pr_number": 62360,
+      "repo_owner": "nodejs",
+      "repo_name": "node",
+      "repo_full_name": "nodejs/node",
+      "title": "test_runner: omit ignored uncovered branches in lcov",
+      "body": "## Summary\r\n- omit uncovered BRDA entries in lcov when branch maps to ignored `node:coverage` lines\r\n- compute BRF/BRH from emitted BRDA entries so lcov totals stay consistent\r\n- add a regression fixture/test for ignored-branch behavior in lcov reporter\r\n\r\n## Test plan\r\n- not run in this environment (missing `out/Release/node`)\r\n- run: `python3 tools/test.py test/parallel/test-runner-coverage.js`\r\n",
+      "state": "closed",
+      "merged_at": null,
+      "created_at": "2026-03-21T10:46:35Z",
+      "updated_at": "2026-03-21T11:51:44Z",
+      "html_url": "https://github.com/nodejs/node/pull/62360",
+      "author": "ace-tk",
+      "labels": [
+        "duplicate",
+        "needs-ci",
+        "test_runner"
+      ],
+      "additions": 51,
+      "deletions": 3,
+      "files_changed_count": 4,
+      "files": [
+        {
+          "filename": "lib/internal/test_runner/coverage.js",
+          "patch": "@@ -197,6 +197,7 @@ class TestCoverage {\n               __proto__: null,\n               line: range.lines[0]?.line,\n               count: range.count,\n+              ignored: range.ignoredLines !== 0,\n             });\n \n             if (range.count !== 0 ||",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 0,
+          "changes": 1
+        },
+        {
+          "filename": "lib/internal/test_runner/reporter/lcov.js",
+          "patch": "@@ -68,15 +68,26 @@ class LcovReporter extends Transform {\n         // Taken is either '-' if the basic block containing the branch was\n         // never executed or a number indicating how often that branch was\n         // taken.\n+        let lcovBranchCount = 0;\n+        let lcovCoveredBranchCount = 0;\n         for (let j = 0; j < file.branches.length; j++) {\n-          lcov += `BRDA:${file.branches[j].line},${j},0,${file.branches[j].count}\\n`;\n+          const branch = file.branches[j];\n+          // Ignored lines should not produce uncovered BRDA entries.\n+          if (branch.ignored && branch.count === 0) {\n+            continue;\n+          }\n+          lcov += `BRDA:${branch.line},${j},0,${branch.count}\\n`;\n+          lcovBranchCount++;\n+          if (branch.count > 0) {\n+            lcovCoveredBranchCount++;\n+          }\n         }\n \n         // Branch coverage summaries are stored in two lines:\n         // ## BRF:\\<number of branches found\\>\n         // ## BRH:\\<number of branches hit\\>\n-        lcov += `BRF:${file.totalBranchCount}\\n`;\n-        lcov += `BRH:${file.coveredBranchCount}\\n`;\n+        lcov += `BRF:${lcovBranchCount}\\n`;\n+        lcov += `BRH:${lcovCoveredBranchCount}\\n`;\n \n         // Then there is a list of execution counts for each instrumented line\n         // (i.e. a line which resulted in executable code):",
+          "status": "modified",
+          "additions": 14,
+          "deletions": 3,
+          "changes": 17
+        },
+        {
+          "filename": "test/fixtures/test-runner/coverage-ignore-next-branch.js",
+          "patch": "@@ -0,0 +1,16 @@\n+'use strict';\n+\n+const test = require('node:test');\n+const assert = require('node:assert');\n+\n+function getValue(condition) {\n+  if (condition) {\n+    return 'truthy';\n+  }\n+  /* node:coverage ignore next */\n+  return 'falsy';\n+}\n+\n+test('returns truthy', () => {\n+  assert.strictEqual(getValue(true), 'truthy');\n+});",
+          "status": "added",
+          "additions": 16,
+          "deletions": 0,
+          "changes": 16
+        },
+        {
+          "filename": "test/parallel/test-runner-coverage.js",
+          "patch": "@@ -511,6 +511,26 @@ test('coverage with included and excluded files', skipIfNoInspector, () => {\n   assert(!findCoverageFileForPid(result.pid));\n });\n \n+test('lcov omits uncovered ignored branches', skipIfNoInspector, () => {\n+  const fixture = fixtures.path('test-runner', 'coverage-ignore-next-branch.js');\n+  const args = [\n+    '--test',\n+    '--experimental-test-coverage',\n+    '--test-reporter',\n+    'lcov',\n+    fixture,\n+  ];\n+  const result = spawnSync(process.execPath, args);\n+  const stdout = result.stdout.toString();\n+\n+  assert.strictEqual(result.stderr.toString(), '');\n+  assert.strictEqual(result.status, 0);\n+  assert.match(stdout, /SF:test\\/fixtures\\/test-runner\\/coverage-ignore-next-branch\\.js/);\n+  assert.match(stdout, /BRF:\\d+/);\n+  assert.match(stdout, /BRH:\\d+/);\n+  assert.doesNotMatch(stdout, /^BRDA:.*,0$/m);\n+});\n+\n test('correctly prints the coverage report of files contained in parent directories', skipIfNoInspector, () => {\n   let report = [\n     '# start of coverage report',",
+          "status": "modified",
+          "additions": 20,
+          "deletions": 0,
+          "changes": 20
+        }
+      ],
+      "review_comments": []
+    }
+  ]
+}
