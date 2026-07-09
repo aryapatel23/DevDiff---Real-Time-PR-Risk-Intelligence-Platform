@@ -46,6 +46,25 @@ const queries = {
     );
   },
 
+  async updateProjectAnalysisStatus(project_id, status, count, total) {
+    await pool.query(
+      `UPDATE public.projects SET analysis_status=$1, analysis_count=$2, analysis_total=$3 WHERE id=$4`,
+      [status, count, total || 0, project_id]
+    );
+  },
+
+  async getUnanalyzedHistoricalPRs(project_id, limit) {
+    const res = await pool.query(
+      `SELECT id, pr_url, pr_number, pr_title, author
+       FROM public.pull_requests
+       WHERE project_id=$1 AND is_historical=true AND status='imported'
+       ORDER BY pr_number DESC
+       LIMIT $2`,
+      [project_id, limit]
+    );
+    return res.rows;
+  },
+
   async insertPR({ project_id, pr_url, repo, pr_number, pr_title, author, ticket_url, files_count, is_historical, status, risk_score }) {
     const res = await pool.query(
       `INSERT INTO public.pull_requests
@@ -69,8 +88,8 @@ const queries = {
   async getHistory(project_id) {
     const res = await pool.query(
       `SELECT *,
-         CASE WHEN is_historical THEN 'imported' ELSE 'scanned' END AS source_type,
-         CASE WHEN is_historical THEN NULL ELSE risk_score END AS display_score
+         CASE WHEN is_historical AND status='imported' THEN 'imported' ELSE 'scanned' END AS source_type,
+         CASE WHEN status='complete' THEN risk_score ELSE NULL END AS display_score
        FROM public.pull_requests WHERE project_id=$1 ORDER BY analyzed_at DESC LIMIT 20`,
       [project_id]
     );
@@ -153,7 +172,7 @@ const queries = {
 
     const critical = Number(res.rows[0]?.critical || 0);
     const warning = Number(res.rows[0]?.warning || 0);
-    const riskScore = Math.min(100, critical * 12 + warning * 4);
+    const riskScore = Math.min(100, critical * 6 + warning * 2);
 
     await pool.query('UPDATE public.pull_requests SET risk_score=$1 WHERE id=$2', [riskScore, pr_id]);
     return riskScore;
@@ -256,8 +275,8 @@ const queries = {
          COUNT(*) FILTER (WHERE f.severity='critical' AND f.false_positive=0) AS critical_count,
          COUNT(*) FILTER (WHERE f.severity='warning'  AND f.false_positive=0) AS warning_count,
          GREATEST(100
-           - COUNT(*) FILTER (WHERE f.severity='critical' AND f.false_positive=0) * 8
-           - COUNT(*) FILTER (WHERE f.severity='warning'  AND f.false_positive=0) * 2, 0) AS score
+           - COUNT(*) FILTER (WHERE f.severity='critical' AND f.false_positive=0) * 4
+           - COUNT(*) FILTER (WHERE f.severity='warning'  AND f.false_positive=0) * 1, 0) AS score
       FROM public.findings f
       JOIN public.pull_requests pr ON pr.id=f.pr_id
       WHERE f.project_id=$1 AND f.created_at > NOW() - INTERVAL '30 days' AND pr.is_historical=false

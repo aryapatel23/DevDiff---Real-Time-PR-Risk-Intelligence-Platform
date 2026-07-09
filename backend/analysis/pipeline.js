@@ -6,8 +6,9 @@ const { validateIntent } = require('../intent/ticketValidator');
 const { enrichWithFunctionContext } = require('./codeEnricher');
 const { reviewAllChunks } = require('./logicReviewer');
 const queries = require('../db/queries');
+const pool = require('../db/db');
 
-async function analyzePR(prUrl, ticketUrl, projectId, githubToken, onFinding) {
+async function analyzePR(prUrl, ticketUrl, projectId, githubToken, onFinding, existingPrId = null) {
   const { owner, repo, number } = parsePRUrl(prUrl);
   const meta = await fetchPRMeta(owner, repo, number, githubToken);
   const files = await fetchPRFiles(owner, repo, number, githubToken);
@@ -45,17 +46,25 @@ async function analyzePR(prUrl, ticketUrl, projectId, githubToken, onFinding) {
     },
   });
 
-  const prId = await queries.insertPR({
-    project_id: projectId,
-    pr_url: prUrl,
-    repo: `${owner}/${repo}`,
-    pr_number: number,
-    pr_title: meta.title,
-    author: meta.author,
-    ticket_url: ticketUrl || null,
-    files_count: files.length,
-    is_historical: false,
-  });
+  let prId;
+  if (existingPrId) {
+    prId = existingPrId;
+    await queries.updatePRStatus({ id: prId, status: 'processing', risk_score: 0 });
+    // Mark as no longer just "imported" — it's now fully analyzed
+    await pool.query('UPDATE public.pull_requests SET is_historical=false WHERE id=$1', [prId]);
+  } else {
+    prId = await queries.insertPR({
+      project_id: projectId,
+      pr_url: prUrl,
+      repo: `${owner}/${repo}`,
+      pr_number: number,
+      pr_title: meta.title,
+      author: meta.author,
+      ticket_url: ticketUrl || null,
+      files_count: files.length,
+      is_historical: false,
+    });
+  }
 
   const profileState = await queries.getOrCreateProfile(projectId, meta.author);
   if (profileState.isNew) {
@@ -170,7 +179,7 @@ async function analyzePR(prUrl, ticketUrl, projectId, githubToken, onFinding) {
     }
   }
 
-  if (process.env.ENABLE_LOGIC_REVIEW === 'true' && process.env.GROQ_API_KEY) {
+  if (process.env.ENABLE_LOGIC_REVIEW === 'true' && process.env.GROQ_API_KEY && !existingPrId) {
     onFinding({ event: 'logic_review_start', data: { chunks: chunks.length } });
 
     const logicFindings = await reviewAllChunks(chunks, (findingEvent) => {
@@ -210,7 +219,7 @@ async function analyzePR(prUrl, ticketUrl, projectId, githubToken, onFinding) {
     onFinding({ event: 'logic_review_complete', data: { count: logicFindings.length } });
   }
 
-  const riskScore = Math.min(100, criticalCount * 12 + warningCount * 4);
+  const riskScore = Math.min(100, criticalCount * 6 + warningCount * 2);
   await queries.updatePRStatus({ id: prId, status: 'complete', risk_score: riskScore });
 
   await queries.updateProfileStats(projectId, meta.author, {

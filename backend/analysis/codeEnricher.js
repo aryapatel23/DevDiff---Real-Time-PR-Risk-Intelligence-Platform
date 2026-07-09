@@ -6,7 +6,9 @@ function findFunctionBoundary(sourceLines, targetLineNo) {
 
   for (let i = targetLineNo - 1; i >= 0; i--) {
     const line = sourceLines[i];
-    if (/\b(function\s+\w+|=>\s*\{|async\s+function|\w+\s*\(.*\)\s*\{|class\s+\w+)/.test(line)) {
+    if (/\b(function\s+\w+|async\s+function\s+\w+|class\s+\w+)/.test(line)
+      || /\b(const|let|var)\s+\w+\s*=\s*(async\s+)?(\(.*?\)\s*=>|function)/.test(line)
+      || /^\s*\w+\s*\(.*\)\s*\{/.test(line)) {
       startLine = i;
       break;
     }
@@ -30,8 +32,10 @@ function findFunctionBoundary(sourceLines, targetLineNo) {
 
 function extractFunctionName(line = '') {
   const m = line.match(/function\s+(\w+)/)
+    || line.match(/(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:\(|function)/)
     || line.match(/(?:const|let|var)\s+(\w+)\s*=/)
-    || line.match(/(\w+)\s*\(.*\)\s*\{/) || line.match(/async\s+(\w+)/);
+    || line.match(/async\s+(\w+)\s*\(/)
+    || line.match(/(\w+)\s*\(.*\)\s*\{/);
   return m ? m[1] : 'anonymous';
 }
 

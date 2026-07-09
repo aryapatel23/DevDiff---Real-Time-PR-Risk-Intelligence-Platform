@@ -1,4 +1,4 @@
-const { queries } = require('../db/queries');
+const queries = require('../db/queries');
 
 async function getAuthorPatterns(author) {
   if (!author || author === 'unknown') return [];

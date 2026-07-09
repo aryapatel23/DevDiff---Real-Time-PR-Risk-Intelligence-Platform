@@ -26,6 +26,9 @@ function mapDbError(err) {
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
+  connectionTimeoutMillis: 15000,
+  idleTimeoutMillis: 60000,
+  statement_timeout: 30000,
 });
 
 pool.on('error', err => {

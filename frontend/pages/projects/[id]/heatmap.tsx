@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useAuth } from '../../../lib/auth';
-import { ArrowLeft, Activity } from 'lucide-react';
+import { ArrowLeft, Activity, Flame, AlertCircle, X } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -21,10 +22,7 @@ export default function ProjectHeatmapPage() {
     const total = Number(row.total || critical + warning + info);
     return {
       ...row,
-      critical,
-      warning,
-      info,
-      total,
+      critical, warning, info, total,
       shortName: String(row.filename || '').split('/').slice(-2).join('/'),
     };
   });
@@ -36,7 +34,6 @@ export default function ProjectHeatmapPage() {
   useEffect(() => {
     if (!session || typeof id !== 'string') return;
     let cancelled = false;
-
     (async () => {
       try {
         setError('');
@@ -45,87 +42,96 @@ export default function ProjectHeatmapPage() {
         if (!res.ok) throw new Error((payload && payload.error) || 'Failed to load heatmap');
         if (!cancelled) setRows(Array.isArray(payload) ? payload : []);
       } catch (e: any) {
-        if (!cancelled) {
-          setRows([]);
-          setError(e?.message || 'Failed to fetch heatmap. Ensure backend is running on port 4000.');
-        }
+        if (!cancelled) { setRows([]); setError(e?.message || 'Failed to fetch heatmap.'); }
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [session, id]);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 p-6">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex items-center gap-2 mb-4">
-          <Link href={`/projects/${id}`} className="h-9 px-3 rounded-md border border-border-default text-text-secondary hover:bg-bg-overlay hover:text-text-primary transition-colors duration-80 inline-flex items-center gap-2 text-sm font-medium">
-            <ArrowLeft size={16} />
-            Back
-          </Link>
-          <Link href={`/projects/${id}/scorecard`} className="h-9 px-3 rounded-md border border-border-default text-text-secondary hover:bg-bg-overlay hover:text-text-primary transition-colors duration-80 inline-flex items-center gap-2 text-sm font-medium">
-            <Activity size={16} />
-            Scorecard
-          </Link>
-        </div>
-        <h1 className="text-xl font-bold my-4">Heatmap</h1>
-        {error && <div className="mb-3 bg-red-950 border border-red-800 rounded p-3 text-sm">{error}</div>}
+    <div className="p-6 md:p-8 max-w-[1000px] mx-auto">
+      <header className="mb-8">
+        <Link href={`/projects/${id}`} className="inline-flex items-center gap-2 text-text-dim hover:text-accent transition text-sm font-medium mb-4">
+          <ArrowLeft className="w-4 h-4" /> Back to Project
+        </Link>
+        <h1 className="text-2xl font-extrabold text-text-bright flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-high/10 flex items-center justify-center">
+            <Flame className="w-5 h-5 text-high" />
+          </div>
+          Bug Density Heatmap
+        </h1>
+        <p className="text-sm text-text-dim mt-1">Findings per file across scanned PRs</p>
+      </header>
 
-        <div className="bg-bg-surface border border-border-subtle rounded-lg p-4 mb-4">
-          <p className="text-[13px] text-text-secondary mb-3">Findings per file (scanned PRs)</p>
-          {chartRows.length === 0 ? (
-            <div className="h-44 bg-bg-elevated rounded-md border border-border-subtle flex items-center justify-center text-sm text-text-muted">
-              Analyze a PR to populate the heatmap
-            </div>
-          ) : (
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartRows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                  <CartesianGrid stroke="var(--border-subtle)" vertical={false} />
-                  <XAxis
-                    dataKey="shortName"
-                    tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: 'var(--font-geist-mono)' }}
-                    axisLine={{ stroke: 'var(--border-subtle)' }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: 'var(--font-geist-mono)' }}
-                    axisLine={{ stroke: 'var(--border-subtle)' }}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: 'var(--bg-elevated)',
-                      border: '1px solid var(--border-default)',
-                      borderRadius: 8,
-                      fontSize: 12,
-                      color: 'var(--text-secondary)',
-                    }}
-                    labelStyle={{ color: 'var(--text-primary)', fontFamily: 'var(--font-geist-mono)' }}
-                  />
-                  <Bar dataKey="total" radius={[4, 4, 0, 0]}>
-                    {chartRows.map((entry: any, index: number) => {
-                      const color = entry.total >= 10 ? 'var(--critical)' : entry.total >= 6 ? '#c44520' : entry.total >= 3 ? '#1a4e7a' : '#1a2e48';
-                      return <Cell key={`cell-${index}`} fill={color} />;
-                    })}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </div>
+      <AnimatePresence>
+        {error && (
+          <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className="mb-6 flex items-center gap-3 bg-critical/10 border border-critical/20 rounded-xl px-4 py-3 text-sm text-critical"
+          >
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span className="flex-1">{error}</span>
+            <button onClick={() => setError('')} className="text-critical/60 hover:text-critical"><X className="w-4 h-4" /></button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-        <div className="space-y-2">
-          {chartRows.map(r => (
-            <div key={r.filename} className="bg-gray-900 border border-gray-800 rounded p-3 text-sm flex justify-between">
-              <span className="font-mono text-xs">{r.filename}</span>
-              <span className="text-gray-400">critical {r.critical} · warning {r.warning} · info {r.info} · total {r.total}</span>
+      <div className="glow-card p-5 mb-6">
+        <p className="text-xs text-text-dim mb-4 uppercase tracking-wider font-semibold">Findings per file</p>
+        {chartRows.length === 0 ? (
+          <div className="h-44 bg-surface-2/50 rounded-xl border border-border-faint flex items-center justify-center text-sm text-text-dim">
+            Analyze a PR to populate the heatmap
+          </div>
+        ) : (
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartRows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke="var(--border-faint)" vertical={false} />
+                <XAxis
+                  dataKey="shortName"
+                  tick={{ fill: 'var(--text-dim)', fontSize: 11, fontFamily: 'var(--font-geist-mono)' }}
+                  axisLine={{ stroke: 'var(--border-faint)' }}
+                  tickLine={false}
+                />
+                <YAxis
+                  allowDecimals={false}
+                  tick={{ fill: 'var(--text-dim)', fontSize: 11, fontFamily: 'var(--font-geist-mono)' }}
+                  axisLine={{ stroke: 'var(--border-faint)' }}
+                  tickLine={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: 'var(--surface-2)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 12,
+                    fontSize: 12,
+                    color: 'var(--text-normal)',
+                  }}
+                  labelStyle={{ color: 'var(--text-bright)', fontFamily: 'var(--font-geist-mono)' }}
+                />
+                <Bar dataKey="total" radius={[6, 6, 0, 0]}>
+                  {chartRows.map((entry: any, index: number) => {
+                    const color = entry.total >= 10 ? 'var(--critical)' : entry.total >= 6 ? 'var(--high)' : entry.total >= 3 ? 'var(--info)' : 'var(--surface-3)';
+                    return <Cell key={`cell-${index}`} fill={color} />;
+                  })}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        {chartRows.map(r => (
+          <div key={r.filename} className="glow-card p-4 flex items-center justify-between text-sm">
+            <span className="font-mono text-xs text-text-normal truncate mr-4">{r.filename}</span>
+            <div className="flex items-center gap-3 shrink-0 text-xs">
+              {r.critical > 0 && <span className="badge badge-critical">{r.critical} critical</span>}
+              {r.warning > 0 && <span className="badge badge-high">{r.warning} warn</span>}
+              {r.info > 0 && <span className="badge badge-info">{r.info} info</span>}
+              <span className="text-text-dim font-semibold">{r.total} total</span>
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
       </div>
     </div>
   );

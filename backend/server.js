@@ -44,6 +44,26 @@ wss.on('connection', (ws, req) => {
 });
 
 const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`DevDiff backend on port ${PORT}`);
+
+  // Auto-run migration on startup
+  try {
+    const { migrate } = require('./db/migrate');
+    await migrate();
+    console.log('[startup] Migration complete');
+  } catch (err) {
+    console.error('[startup] Migration error:', err.message);
+  }
+
+  // Startup DB health check
+  try {
+    const pool = require('./db/db');
+    await pool.query('SELECT 1');
+    console.log('[startup] Database connected');
+  } catch (err) {
+    console.error('[startup] WARNING: Database unreachable:', err.message);
+    console.error('[startup] The server is running but API requests requiring the database will fail.');
+    console.error('[startup] Check your DATABASE_URL in .env and ensure Supabase is accessible.');
+  }
 });

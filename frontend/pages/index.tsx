@@ -15,5 +15,5 @@ export default function IndexPage() {
     }
   }, [loading, session, router]);
 
-  return <div className="min-h-screen bg-gray-950" />;
+  return <div className="min-h-screen bg-void" />;
 }

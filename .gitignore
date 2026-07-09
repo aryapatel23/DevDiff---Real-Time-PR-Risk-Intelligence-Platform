@@ -56,3 +56,6 @@ coverage/
 # Misc
 dist/
 build/
+
+# Development docs (not for repo)
+development_md/

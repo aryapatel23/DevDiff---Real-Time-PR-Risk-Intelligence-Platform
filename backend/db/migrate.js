@@ -13,7 +13,6 @@ async function migrate({ closePool = false } = {}) {
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[DevDiff] Migration failed:', err.message);
-    process.exitCode = 1;
   } finally {
     client.release();
     if (closePool) {

@@ -25,6 +25,8 @@ import {
   UserPlus,
   CheckCircle2,
   Github,
+  X,
+  Trash2,
 } from 'lucide-react';
 
 type Project = {
@@ -33,6 +35,10 @@ type Project = {
   github_repo: string;
   is_private: boolean;
   import_status: string;
+  import_count?: number;
+  analysis_status?: string;
+  analysis_count?: number;
+  analysis_total?: number;
 };
 
 type Finding = {
@@ -69,37 +75,63 @@ type FindingFilter = 'all' | 'critical' | 'warning' | 'info' | 'low' | 'ignored'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-function RiskMeter({ score }: { score: number }) {
-  const color = score >= 70 ? 'from-red-500 to-red-600' : score >= 40 ? 'from-amber-500 to-amber-600' : 'from-emerald-500 to-emerald-600';
-  const label = score >= 70 ? 'High Risk' : score >= 40 ? 'Medium Risk' : 'Low Risk';
-  const textColor = score >= 70 ? 'text-red-400' : score >= 40 ? 'text-amber-400' : 'text-emerald-400';
+function ScoreRing({ score, size = 64 }: { score: number; size?: number }) {
+  const radius = (size - 8) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const progress = (score / 100) * circumference;
+  const color = score >= 70 ? 'var(--critical)' : score >= 40 ? 'var(--high)' : 'var(--low)';
+  const label = score >= 70 ? 'High' : score >= 40 ? 'Medium' : 'Low';
+
   return (
-    <div className="flex items-center gap-4">
-      <div className="flex-1 bg-gray-800 rounded-full h-2.5 overflow-hidden">
-        <motion.div
-          className={`h-full rounded-full bg-gradient-to-r ${color}`}
-          initial={{ width: 0 }}
-          animate={{ width: `${score}%` }}
-          transition={{ duration: 0.8, ease: 'easeOut' }}
+    <div className="flex flex-col items-center gap-1">
+      <svg width={size} height={size} className="score-ring">
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--surface-3)" strokeWidth={5} />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth={5}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference - progress}
+          className="score-ring-fill"
         />
-      </div>
-      <span className={`text-sm font-bold ${textColor} tabular-nums min-w-[70px] text-right`}>{score}/100</span>
-      <span className={`text-xs font-medium ${textColor} hidden sm:inline`}>{label}</span>
+        <text
+          x={size / 2}
+          y={size / 2}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fill="var(--text-bright)"
+          fontSize={size * 0.22}
+          fontWeight="700"
+          style={{ transform: 'rotate(90deg)', transformOrigin: '50% 50%' }}
+        >
+          {score}
+        </text>
+      </svg>
+      <span className="text-xs font-semibold" style={{ color }}>{label} Risk</span>
     </div>
   );
 }
 
 function SeverityBadge({ severity }: { severity: string }) {
-  const config: Record<string, { cls: string; icon: any }> = {
-    critical: { cls: 'bg-red-500/10 text-red-400 border-red-500/30', icon: ShieldAlert },
-    warning: { cls: 'bg-amber-500/10 text-amber-400 border-amber-500/30', icon: AlertCircle },
-    info: { cls: 'bg-sky-500/10 text-sky-400 border-sky-500/30', icon: Zap },
-    suggestion: { cls: 'bg-gray-500/10 text-gray-400 border-gray-500/30', icon: Lightbulb },
+  const map: Record<string, string> = {
+    critical: 'badge-critical',
+    warning: 'badge-high',
+    info: 'badge-info',
+    suggestion: 'badge-medium',
   };
-  const c = config[severity] || config.info;
-  const Icon = c.icon;
+  const icons: Record<string, any> = {
+    critical: ShieldAlert,
+    warning: AlertCircle,
+    info: Zap,
+    suggestion: Lightbulb,
+  };
+  const Icon = icons[severity] || Zap;
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-semibold uppercase tracking-wide ${c.cls}`}>
+    <span className={`badge ${map[severity] || 'badge-info'}`}>
       <Icon className="w-3 h-3" />
       {severity}
     </span>
@@ -142,6 +174,24 @@ export default function ProjectDetailPage() {
       .catch(e => setError(e.message));
   }, [id, session]);
 
+  // Poll project status while import or analysis is in progress
+  useEffect(() => {
+    if (!id || !session || !project) return;
+    const isImporting = project.import_status === 'running' || project.import_status === 'pending';
+    const isAnalyzingHist = project.analysis_status === 'running';
+    if (!isImporting && !isAnalyzingHist) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API}/api/projects/${id}`, { headers: apiHeaders() });
+        const data = await res.json();
+        if (res.ok) setProject(data);
+      } catch {}
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [id, session, project?.import_status, project?.analysis_status]);
+
   async function analyze() {
     if (!prUrl.trim() || !project) return;
     if (wsRef.current) {
@@ -172,13 +222,10 @@ export default function ProjectDetailPage() {
           setPrMeta(msg.data || null);
           setPhaseText('PR loaded');
         }
-        if (msg.event === 'code_loaded') {
-          setPhaseText('Running rule checks...');
-        }
-        if (msg.event === 'logic_review_start') {
-          setPhaseText('Running logic review...');
-        }
+        if (msg.event === 'code_loaded') setPhaseText('Running rule checks...');
+        if (msg.event === 'logic_review_start') setPhaseText('Running logic review...');
         if (msg.event === 'new_user') setNewUserMsg(msg.data?.message || '');
+        if (msg.event === 'intent_warning') setPhaseText('Intent mismatch detected');
         if (msg.event === 'finding') {
           setFindings(prev => [...prev, msg.data]);
           setPhaseText('Streaming findings...');
@@ -196,15 +243,12 @@ export default function ProjectDetailPage() {
             fix_hint: msg.data?.fix || '',
             source: 'llm',
           };
-
           setFindings(prev => [...prev, logicFinding]);
           setPhaseText('Streaming logic findings...');
           if (logicFinding.severity === 'critical') setRiskScore(prev => Math.min(100, prev + 12));
           else if (logicFinding.severity === 'warning') setRiskScore(prev => Math.min(100, prev + 4));
         }
-        if (msg.event === 'logic_review_complete') {
-          setPhaseText('Logic review completed');
-        }
+        if (msg.event === 'logic_review_complete') setPhaseText('Logic review completed');
         if (msg.event === 'complete') {
           setSummary(msg.data || null);
           setRiskScore(Number(msg.data?.riskScore || 0));
@@ -226,9 +270,8 @@ export default function ProjectDetailPage() {
 
   async function deleteProject() {
     if (!project || isDeleting) return;
-    const confirmed = window.confirm(`Delete project \"${project.name}\"? This cannot be undone.`);
+    const confirmed = window.confirm(`Delete project "${project.name}"? This cannot be undone.`);
     if (!confirmed) return;
-
     setIsDeleting(true);
     setError('');
     try {
@@ -247,25 +290,21 @@ export default function ProjectDetailPage() {
 
   async function advanceFindingSuppression(findingId: number) {
     if (!project) return;
-
     try {
       setUpdatingFindingId(findingId);
       setError('');
-
       const res = await fetch(`${API}/api/analytics/findings/${findingId}/fp`, {
         method: 'POST',
         headers: apiHeaders(),
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload?.error || 'Failed to update finding feedback');
-
       const nextLevel = Number(payload?.false_positive || 0);
       setFindings(prev => prev.map(f => {
         if (f.id !== findingId) return f;
         const nextSeverity = nextLevel === 1 ? 'info' : f.severity;
         return { ...f, false_positive: nextLevel, severity: nextSeverity };
       }));
-
       if (typeof payload?.prRiskScore === 'number') {
         setRiskScore(payload.prRiskScore);
         setSummary(prev => (prev ? { ...prev, riskScore: payload.prRiskScore } : prev));
@@ -278,9 +317,7 @@ export default function ProjectDetailPage() {
   }
 
   useEffect(() => {
-    return () => {
-      if (wsRef.current) wsRef.current.close();
-    };
+    return () => { if (wsRef.current) wsRef.current.close(); };
   }, []);
 
   const grouped = useMemo(() => {
@@ -291,7 +328,6 @@ export default function ProjectDetailPage() {
       if (findingFilter === 'all') return level <= 1;
       return level <= 1 && f.severity === findingFilter;
     });
-
     const map: Record<string, Finding[]> = {};
     for (const f of byFilter) {
       if (!map[f.filename]) map[f.filename] = [];
@@ -306,371 +342,424 @@ export default function ProjectDetailPage() {
   const lowPriorityCount = findings.filter(f => Number(f.false_positive || 0) === 1).length;
   const ignoredCount = findings.filter(f => Number(f.false_positive || 0) >= 2).length;
 
-  if (loading || !session) return <div className="min-h-screen bg-[#0a0a0a]" />;
+  if (loading || !session) return <div className="min-h-screen bg-void" />;
+
+  const isImporting = project?.import_status === 'running' || project?.import_status === 'pending';
+  const isAnalyzingHistory = project?.analysis_status === 'running';
+  const showProgress = isImporting || isAnalyzingHistory;
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-gray-100 p-6 font-sans">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <header className="mb-10 pb-6 border-b border-gray-800/50">
-          <Link href="/dashboard" className="flex items-center gap-2 text-gray-500 hover:text-white transition w-fit text-sm font-medium mb-4">
-            <ArrowLeft className="w-4 h-4" /> Back to Dashboard
-          </Link>
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center gap-4">
-              <div className="bg-blue-900/30 p-3 rounded-2xl border border-blue-500/20">
-                <GitPullRequest className="w-7 h-7 text-blue-400" />
-              </div>
-              <div>
-                <div className="flex items-center gap-3">
-                  <h1 className="text-3xl font-extrabold tracking-tight text-white">{project?.name || 'Project'}</h1>
-                  {project?.is_private && (
-                    <span className="bg-gray-800 border border-gray-700 text-gray-400 p-1.5 rounded-lg" title="Private Repository">
-                      <Lock className="w-3.5 h-3.5" />
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm text-gray-500 font-mono flex items-center gap-1.5 mt-1">
-                  <Github className="w-3.5 h-3.5" />
-                  {project?.github_repo}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={deleteProject}
-              disabled={isDeleting}
-              className="bg-red-600/90 hover:bg-red-600 transition px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50"
-            >
-              {isDeleting ? 'Deleting...' : 'Delete Project'}
-            </button>
-          </div>
-        </header>
-
-        {/* Analysis Panel */}
-        <motion.div 
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-[#111] border border-gray-800 rounded-3xl p-6 mb-8 shadow-2xl"
-        >
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <Search className="w-5 h-5 text-blue-500" />
-              Analyze Pull Request
-            </h2>
-            <div className="flex items-center gap-2">
-              {isAnalyzing ? (
-                <span className="flex items-center gap-2 text-xs font-medium text-blue-400 bg-blue-500/10 border border-blue-500/20 px-3 py-1.5 rounded-lg">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  {phaseText}
-                </span>
-              ) : (
-                <span className="flex items-center gap-2 text-xs font-medium text-gray-500 bg-gray-800 px-3 py-1.5 rounded-lg">
-                  <Clock className="w-3.5 h-3.5" />
-                  {phaseText}
-                </span>
-              )}
-            </div>
-          </div>
-
-          <p className="text-xs text-gray-500 mb-4">
-            PRs must belong to <span className="text-gray-300 font-mono">{project?.github_repo}</span>
-          </p>
-
-          <div className="flex gap-3 mb-3">
-            <input
-              value={prUrl}
-              onChange={e => setPrUrl(e.target.value)}
-              placeholder="https://github.com/owner/repo/pull/123"
-              className="flex-1 bg-gray-900 border border-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition rounded-xl px-4 py-3 text-sm font-mono"
-            />
-            <button
-              onClick={analyze}
-              disabled={isAnalyzing || !prUrl.trim()}
-              className="bg-blue-600 hover:bg-blue-500 transition shadow-lg shadow-blue-900/20 px-6 py-3 rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center gap-2"
-            >
-              {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-              {isAnalyzing ? 'Analyzing...' : 'Analyze'}
-            </button>
-          </div>
-
-          <input
-            value={ticketUrl}
-            onChange={e => setTicketUrl(e.target.value)}
-            placeholder="Optional: Ticket or issue URL for intent validation"
-            className="w-full bg-gray-900 border border-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition rounded-xl px-4 py-3 text-sm mb-4"
-          />
-
-          <RiskMeter score={riskScore} />
-
-          {/* Check Another PR button */}
-          {!isAnalyzing && phaseText === 'Complete' && (
-            <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="mt-4 pt-4 border-t border-gray-800/50">
-              <button
-                onClick={() => {
-                  setPrUrl('');
-                  setTicketUrl('');
-                  setFindings([]);
-                  setPrMeta(null);
-                  setSummary(null);
-                  setNewUserMsg('');
-                  setError('');
-                  setRiskScore(0);
-                  setPhaseText('Idle');
-                }}
-                className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 transition px-4 py-3 rounded-xl text-sm font-semibold text-gray-200"
-              >
-                <GitPullRequest className="w-4 h-4" />
-                Check Another PR
-              </button>
-            </motion.div>
-          )}
-        </motion.div>
-
-        {/* Notifications */}
-        <AnimatePresence>
-          {newUserMsg && (
-            <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-              className="mb-6 flex items-center gap-3 bg-blue-950/30 border border-blue-900/40 rounded-xl px-4 py-3 text-sm text-blue-200"
-            >
-              <UserPlus className="w-5 h-5 text-blue-400 shrink-0" />
-              {newUserMsg}
-            </motion.div>
-          )}
-          {error && (
-            <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-              className="mb-6 flex items-center gap-3 bg-red-950/30 border border-red-900/40 rounded-xl px-4 py-3 text-sm text-red-200"
-            >
-              <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
-              {error}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* PR Meta */}
-        <AnimatePresence>
-          {prMeta && (
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-              className="mb-6 bg-[#111] border border-gray-800 rounded-2xl p-5 shadow-lg"
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                    <GitPullRequest className="w-5 h-5 text-purple-400" />
-                    PR #{prMeta.prNumber}: {prMeta.title || 'Untitled PR'}
-                  </h3>
-                  <div className="flex items-center gap-4 mt-2 text-sm text-gray-400">
-                    <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> {prMeta.author}</span>
-                    <span className="flex items-center gap-1.5"><FileCode2 className="w-3.5 h-3.5" /> {prMeta.files?.length || 0} files changed</span>
-                  </div>
-                </div>
-                {prMeta.prUrl && (
-                  <a href={prMeta.prUrl} target="_blank" rel="noreferrer" className="text-gray-500 hover:text-white transition p-2">
-                    <ExternalLink className="w-4 h-4" />
-                  </a>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Clean PR Message */}
-        {summary && findings.length === 0 && !error && (
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-            className="mb-8 flex flex-col items-center justify-center p-12 bg-[#111] border border-emerald-900/40 rounded-3xl text-center shadow-2xl"
+    <div className="p-6 md:p-8 max-w-[1200px] mx-auto">
+      {/* Import/Analysis Progress Popup */}
+      <AnimatePresence>
+        {showProgress && (
+          <motion.div
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            className="mb-6 glow-card glow-border p-6"
           >
-            <div className="bg-emerald-900/20 p-5 rounded-full mb-5 border border-emerald-500/20">
-              <ShieldCheck className="w-10 h-10 text-emerald-400" />
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
+                <Loader2 className="w-6 h-6 text-accent animate-spin" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-base font-bold text-text-bright mb-1">
+                  {isImporting ? 'Importing merged PRs...' : 'Analyzing historical PRs...'}
+                </h3>
+                <p className="text-sm text-text-dim mb-3">
+                  {isImporting
+                    ? `Fetching your merged PRs from GitHub (${project?.import_count || 0}/30)`
+                    : `Running security analysis on past PRs (${project?.analysis_count || 0}/${project?.analysis_total || 0})`
+                  }
+                </p>
+                {/* Progress bar */}
+                <div className="h-2 rounded-full bg-surface-3 overflow-hidden">
+                  <motion.div
+                    className="h-full rounded-full bg-accent"
+                    initial={{ width: 0 }}
+                    animate={{
+                      width: isImporting
+                        ? `${((project?.import_count || 0) / 30) * 100}%`
+                        : `${((project?.analysis_count || 0) / (project?.analysis_total || 1)) * 100}%`
+                    }}
+                    transition={{ duration: 0.5, ease: 'easeOut' }}
+                  />
+                </div>
+                <div className="flex justify-between mt-2 text-xs text-text-dim">
+                  <span>{isImporting ? 'Importing...' : 'Analyzing...'}</span>
+                  <span>
+                    {isImporting
+                      ? `${project?.import_count || 0} of 30 PRs`
+                      : `${project?.analysis_count || 0} of ${project?.analysis_total || 0} PRs`
+                    }
+                  </span>
+                </div>
+              </div>
             </div>
-            <h3 className="text-xl font-bold text-white mb-2">All Clear!</h3>
-            <p className="text-gray-400 max-w-md">No security risks or code quality issues were detected in this pull request. Great work!</p>
           </motion.div>
         )}
+      </AnimatePresence>
+      {/* Header */}
+      <header className="mb-8">
+        <Link href="/dashboard" className="inline-flex items-center gap-2 text-text-dim hover:text-accent transition text-sm font-medium mb-4">
+          <ArrowLeft className="w-4 h-4" />
+          Back to Dashboard
+        </Link>
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center">
+              <GitPullRequest className="w-6 h-6 text-accent" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-extrabold text-text-bright">{project?.name || 'Project'}</h1>
+                {project?.is_private && <Lock className="w-4 h-4 text-text-dim" />}
+              </div>
+              <p className="text-sm text-text-dim font-mono flex items-center gap-1.5 mt-0.5">
+                <Github className="w-3.5 h-3.5" />
+                {project?.github_repo}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={deleteProject}
+            disabled={isDeleting}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-critical/80 hover:text-critical hover:bg-critical/10 border border-critical/20 transition-all disabled:opacity-50"
+          >
+            <Trash2 className="w-4 h-4" />
+            {isDeleting ? 'Deleting...' : 'Delete'}
+          </button>
+        </div>
+      </header>
 
-        {/* Findings */}
-        {Object.keys(grouped).length > 0 && (
-          <div className="mb-8">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <ShieldAlert className="w-5 h-5 text-red-500" />
-                Findings
-              </h2>
-              <div className="flex items-center gap-3 text-xs font-medium">
-                {criticalCount > 0 && (
-                  <span className="bg-red-500/10 text-red-400 border border-red-500/20 px-2.5 py-1 rounded-lg">
-                    {criticalCount} Critical
-                  </span>
-                )}
-                {warningCount > 0 && (
-                  <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2.5 py-1 rounded-lg">
-                    {warningCount} Warnings
-                  </span>
-                )}
+      {/* Analysis Panel */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glow-card p-6 mb-6"
+      >
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-base font-bold text-text-bright flex items-center gap-2">
+            <Search className="w-4 h-4 text-accent" />
+            Analyze Pull Request
+          </h2>
+          <div className="flex items-center gap-2">
+            {isAnalyzing ? (
+              <span className="badge badge-accent">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                {phaseText}
+              </span>
+            ) : (
+              <span className="badge badge-info">
+                <Clock className="w-3 h-3" />
+                {phaseText}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <p className="text-xs text-text-dim mb-4">
+          PRs must belong to <span className="text-text-normal font-mono">{project?.github_repo}</span>
+        </p>
+
+        <div className="flex gap-3 mb-3">
+          <input
+            value={prUrl}
+            onChange={e => setPrUrl(e.target.value)}
+            placeholder="https://github.com/owner/repo/pull/123"
+            className="input-field flex-1 font-mono text-sm"
+          />
+          <button
+            onClick={analyze}
+            disabled={isAnalyzing || !prUrl.trim()}
+            className="btn-primary flex items-center gap-2 text-sm shrink-0"
+          >
+            {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+            {isAnalyzing ? 'Analyzing...' : 'Analyze'}
+          </button>
+        </div>
+
+        <input
+          value={ticketUrl}
+          onChange={e => setTicketUrl(e.target.value)}
+          placeholder="Optional: Ticket or issue URL for intent validation"
+          className="input-field text-sm mb-5"
+        />
+
+        {/* Risk Score Ring */}
+        {(isAnalyzing || riskScore > 0) && (
+          <div className="flex items-center gap-6 p-4 rounded-xl bg-surface-2/50 border border-border-faint">
+            <ScoreRing score={riskScore} />
+            <div className="flex-1">
+              <div className="h-2 rounded-full bg-surface-3 overflow-hidden">
+                <motion.div
+                  className={`h-full rounded-full ${
+                    riskScore >= 70 ? 'bg-critical' : riskScore >= 40 ? 'bg-high' : 'bg-safe'
+                  }`}
+                  initial={{ width: 0 }}
+                  animate={{ width: `${riskScore}%` }}
+                  transition={{ duration: 0.6, ease: 'easeOut' }}
+                />
+              </div>
+              <div className="flex justify-between mt-2 text-xs text-text-dim">
+                <span>0</span>
+                <span>Risk Score</span>
+                <span>100</span>
               </div>
             </div>
+          </div>
+        )}
 
-            <div className="mb-4 flex flex-wrap gap-2">
-              {[
-                { key: 'all', label: 'All', count: criticalCount + warningCount + infoCount },
-                { key: 'critical', label: 'Critical', count: criticalCount },
-                { key: 'warning', label: 'Warnings', count: warningCount },
-                { key: 'info', label: 'Info', count: infoCount },
-                { key: 'low', label: 'Low Priority', count: lowPriorityCount },
-                { key: 'ignored', label: 'Ignored', count: ignoredCount },
-              ].map(item => (
-                <button
-                  key={item.key}
-                  onClick={() => setFindingFilter(item.key as FindingFilter)}
-                  className={`text-xs px-3 py-1.5 rounded-lg border transition ${
-                    findingFilter === item.key
-                      ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
-                      : 'bg-gray-900/60 text-gray-400 border-gray-800 hover:border-gray-700 hover:text-gray-200'
-                  }`}
-                >
-                  {item.label} ({item.count})
-                </button>
-              ))}
+        {/* Check Another PR */}
+        {!isAnalyzing && phaseText === 'Complete' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 pt-4 border-t border-border-faint">
+            <button
+              onClick={() => {
+                setPrUrl(''); setTicketUrl(''); setFindings([]); setPrMeta(null);
+                setSummary(null); setNewUserMsg(''); setError(''); setRiskScore(0); setPhaseText('Idle');
+              }}
+              className="btn-ghost w-full flex items-center justify-center gap-2 text-sm"
+            >
+              <GitPullRequest className="w-4 h-4" />
+              Check Another PR
+            </button>
+          </motion.div>
+        )}
+      </motion.div>
+
+      {/* Notifications */}
+      <AnimatePresence>
+        {newUserMsg && (
+          <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className="mb-4 flex items-center gap-3 bg-info/10 border border-info/20 rounded-xl px-4 py-3 text-sm text-info"
+          >
+            <UserPlus className="w-4 h-4 shrink-0" />
+            {newUserMsg}
+          </motion.div>
+        )}
+        {error && (
+          <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className="mb-4 flex items-center gap-3 bg-critical/10 border border-critical/20 rounded-xl px-4 py-3 text-sm text-critical"
+          >
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span className="flex-1">{error}</span>
+            <button onClick={() => setError('')} className="text-critical/60 hover:text-critical">
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* PR Meta */}
+      <AnimatePresence>
+        {prMeta && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mb-6 glow-card p-5">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-base font-bold text-text-bright flex items-center gap-2">
+                  <GitPullRequest className="w-4 h-4 text-accent" />
+                  PR #{prMeta.prNumber}: {prMeta.title || 'Untitled PR'}
+                </h3>
+                <div className="flex items-center gap-4 mt-2 text-sm text-text-dim">
+                  <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> {prMeta.author}</span>
+                  <span className="flex items-center gap-1.5"><FileCode2 className="w-3.5 h-3.5" /> {prMeta.files?.length || 0} files</span>
+                </div>
+              </div>
+              {prMeta.prUrl && (
+                <a href={prMeta.prUrl} target="_blank" rel="noreferrer" className="p-2 rounded-lg text-text-dim hover:text-accent hover:bg-accent/10 transition-all">
+                  <ExternalLink className="w-4 h-4" />
+                </a>
+              )}
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-            <div className="space-y-4">
-              <AnimatePresence>
-                {Object.entries(grouped).map(([filename, rows]) => {
-                  const dangerZone = rows.length >= 5;
-                  return (
-                    <motion.div 
-                      key={filename}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className={`bg-[#111] border rounded-2xl overflow-hidden shadow-lg ${dangerZone ? 'border-red-900/50' : 'border-gray-800'}`}
-                    >
-                      <div className={`flex items-center justify-between px-5 py-3 ${dangerZone ? 'bg-red-950/20' : 'bg-gray-900/30'}`}>
-                        <div className="flex items-center gap-3">
-                          <FileCode2 className={`w-4 h-4 ${dangerZone ? 'text-red-400' : 'text-gray-400'}`} />
-                          <p className="text-sm font-mono text-gray-200">{filename}</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-gray-500">{rows.length} issue{rows.length > 1 ? 's' : ''}</span>
-                          {dangerZone && (
-                            <span className="text-xs bg-red-500/10 text-red-400 border border-red-500/20 px-2 py-0.5 rounded-md font-semibold">
-                              DANGER ZONE
-                            </span>
-                          )}
-                        </div>
+      {/* Clean PR */}
+      {summary && findings.length === 0 && !error && (
+        <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }}
+          className="mb-8 flex flex-col items-center justify-center p-12 glow-card text-center"
+        >
+          <div className="w-16 h-16 rounded-2xl bg-low/10 border border-low/20 flex items-center justify-center mb-5">
+            <ShieldCheck className="w-8 h-8 text-safe" />
+          </div>
+          <h3 className="text-xl font-bold text-text-bright mb-2">All Clear!</h3>
+          <p className="text-text-dim max-w-md text-sm">No security risks or code quality issues were detected. Great work!</p>
+        </motion.div>
+      )}
+
+      {/* Findings */}
+      {Object.keys(grouped).length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-bold text-text-bright flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-critical" />
+              Findings
+            </h2>
+            <div className="flex items-center gap-2">
+              {criticalCount > 0 && <span className="badge badge-critical">{criticalCount} Critical</span>}
+              {warningCount > 0 && <span className="badge badge-high">{warningCount} Warnings</span>}
+            </div>
+          </div>
+
+          {/* Filter tabs */}
+          <div className="flex flex-wrap gap-2 mb-5">
+            {[
+              { key: 'all', label: 'All', count: criticalCount + warningCount + infoCount },
+              { key: 'critical', label: 'Critical', count: criticalCount },
+              { key: 'warning', label: 'Warnings', count: warningCount },
+              { key: 'info', label: 'Info', count: infoCount },
+              { key: 'low', label: 'Low Priority', count: lowPriorityCount },
+              { key: 'ignored', label: 'Ignored', count: ignoredCount },
+            ].map(item => (
+              <button
+                key={item.key}
+                onClick={() => setFindingFilter(item.key as FindingFilter)}
+                className={`badge transition-all ${
+                  findingFilter === item.key
+                    ? 'badge-accent'
+                    : 'bg-surface-2 text-text-dim border-border-subtle hover:border-border-default hover:text-text-normal'
+                }`}
+              >
+                {item.label} ({item.count})
+              </button>
+            ))}
+          </div>
+
+          {/* Grouped findings */}
+          <div className="space-y-4">
+            <AnimatePresence>
+              {Object.entries(grouped).map(([filename, rows]) => {
+                const dangerZone = rows.length >= 5;
+                return (
+                  <motion.div
+                    key={filename}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`glow-card overflow-hidden ${dangerZone ? 'border-critical/30' : ''}`}
+                  >
+                    {/* File header */}
+                    <div className={`flex items-center justify-between px-5 py-3 ${dangerZone ? 'bg-critical/5' : 'bg-surface-2/50'}`}>
+                      <div className="flex items-center gap-3">
+                        <FileCode2 className={`w-4 h-4 ${dangerZone ? 'text-critical' : 'text-text-dim'}`} />
+                        <p className="text-sm font-mono text-text-bright">{filename}</p>
                       </div>
-                      <div className="divide-y divide-gray-800/50">
-                        {rows.map((f, idx) => (
-                          <div key={`${filename}-${idx}`} className={`px-5 py-4 hover:bg-gray-900/20 transition ${f.severity === 'critical' && Number(f.false_positive || 0) === 0 ? 'bg-red-950/10 border-l-2 border-red-500/40' : ''}`}>
-                            <div className="flex items-center gap-3 mb-2 flex-wrap">
-                              <SeverityBadge severity={f.severity} />
-                              {Number(f.false_positive || 0) === 1 ? (
-                                <span className="text-xs text-amber-300 font-semibold bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded">LOW PRIORITY</span>
-                              ) : null}
-                              {Number(f.false_positive || 0) >= 2 ? (
-                                <span className="text-xs text-gray-300 font-semibold bg-gray-800/80 border border-gray-700 px-2 py-0.5 rounded">IGNORED</span>
-                              ) : null}
-                              <span className="text-xs text-gray-500 font-mono bg-gray-800/50 px-2 py-0.5 rounded">{f.rule_name}</span>
-                              <span className="text-xs text-gray-500">Line {f.line_number}</span>
-                              <span className="ml-auto text-xs font-semibold text-gray-400 tabular-nums">{Math.round(f.confidence)}% confidence</span>
-                            </div>
-                            <p className="text-sm text-gray-200 leading-relaxed">{f.message}</p>
-                            {typeof f.id === 'number' && Number(f.false_positive || 0) < 2 && (
-                              <div className="mt-3">
-                                <button
-                                  onClick={() => advanceFindingSuppression(f.id as number)}
-                                  disabled={updatingFindingId === f.id}
-                                  className="text-xs border border-gray-700 hover:border-gray-600 disabled:opacity-50 text-gray-300 hover:text-white px-2.5 py-1 rounded-md transition"
-                                >
-                                  {updatingFindingId === f.id ? 'Saving...' : Number(f.false_positive || 0) === 1 ? 'Mark Again to Ignore' : 'Mark as False Positive'}
-                                </button>
-                              </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-text-dim">{rows.length} issue{rows.length > 1 ? 's' : ''}</span>
+                        {dangerZone && <span className="badge badge-critical">DANGER ZONE</span>}
+                      </div>
+                    </div>
+
+                    {/* Findings list */}
+                    <div className="divide-y divide-border-faint">
+                      {rows.map((f, idx) => (
+                        <div
+                          key={`${filename}-${idx}`}
+                          className={`px-5 py-4 hover:bg-surface-2/30 transition ${
+                            f.severity === 'critical' && Number(f.false_positive || 0) === 0
+                              ? 'border-l-2 border-l-critical bg-critical/3'
+                              : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 mb-2 flex-wrap">
+                            <SeverityBadge severity={f.severity} />
+                            {Number(f.false_positive || 0) === 1 && (
+                              <span className="badge badge-medium">LOW PRIORITY</span>
                             )}
-                            {typeof f.id === 'number' && Number(f.false_positive || 0) >= 2 && (
-                              <p className="mt-3 text-xs text-gray-500">Ignored in future scans for this same file + rule.</p>
+                            {Number(f.false_positive || 0) >= 2 && (
+                              <span className="badge bg-surface-3 text-text-dim border-border-subtle">IGNORED</span>
+                            )}
+                            <span className="text-xs text-text-dim font-mono bg-surface-2 px-2 py-0.5 rounded">{f.rule_name}</span>
+                            <span className="text-xs text-text-dim">L{f.line_number}</span>
+                            <span className="ml-auto text-xs font-semibold text-text-dim tabular-nums">{Math.round(f.confidence)}%</span>
+                          </div>
+                          <p className="text-sm text-text-normal leading-relaxed">{f.message}</p>
+
+                          {/* Actions */}
+                          <div className="flex items-center gap-3 mt-3">
+                            {typeof f.id === 'number' && Number(f.false_positive || 0) < 2 && (
+                              <button
+                                onClick={() => advanceFindingSuppression(f.id as number)}
+                                disabled={updatingFindingId === f.id}
+                                className="text-xs px-3 py-1.5 rounded-lg border border-border-subtle hover:border-border-default text-text-dim hover:text-text-normal transition disabled:opacity-50"
+                              >
+                                {updatingFindingId === f.id ? 'Saving...' : Number(f.false_positive || 0) === 1 ? 'Mark Again to Ignore' : 'Mark as False Positive'}
+                              </button>
                             )}
                             {f.fix_hint && (
-                              <details className="mt-3 group">
-                                <summary className="text-xs text-blue-400 cursor-pointer hover:text-blue-300 transition flex items-center gap-1.5">
+                              <details className="group">
+                                <summary className="text-xs text-accent cursor-pointer hover:text-accent-dim transition flex items-center gap-1.5">
                                   <ChevronDown className="w-3.5 h-3.5 group-open:rotate-180 transition-transform" />
-                                  View fix suggestion
+                                  Fix suggestion
                                 </summary>
-                                <div className="mt-2 bg-gray-900/50 border border-gray-800/50 rounded-lg px-4 py-3 text-xs text-gray-300 leading-relaxed font-mono">
+                                <div className="mt-2 bg-surface-2 border border-border-faint rounded-lg px-4 py-3 text-xs text-text-code leading-relaxed font-mono">
                                   {f.fix_hint}
                                 </div>
                               </details>
                             )}
                           </div>
-                        ))}
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
-            {Object.keys(grouped).length === 0 && (
-              <div className="text-sm text-gray-500 border border-gray-800 rounded-xl p-4">
-                No findings for this filter.
-              </div>
-            )}
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Summary */}
-        {summary && findings.length > 0 && (
-          <motion.div 
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-8 bg-[#111] border border-gray-800 rounded-2xl p-5 shadow-lg"
-          >
-            <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
-              <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-              Analysis Complete
-            </h3>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="bg-gray-900/50 rounded-xl p-4 text-center border border-gray-800/50">
-                <p className="text-2xl font-bold text-white">{summary.totalFindings}</p>
-                <p className="text-xs text-gray-400 mt-1">Total Findings</p>
-              </div>
-              <div className="bg-gray-900/50 rounded-xl p-4 text-center border border-gray-800/50">
-                <p className={`text-2xl font-bold ${summary.riskScore >= 70 ? 'text-red-400' : summary.riskScore >= 40 ? 'text-amber-400' : 'text-emerald-400'}`}>{summary.riskScore}/100</p>
-                <p className="text-xs text-gray-400 mt-1">Risk Score</p>
-              </div>
-              <div className="bg-gray-900/50 rounded-xl p-4 text-center border border-gray-800/50">
-                <p className="text-2xl font-bold text-white">{summary.author}</p>
-                <p className="text-xs text-gray-400 mt-1">Author</p>
-              </div>
+      {/* Summary */}
+      {summary && findings.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mb-8 glow-card p-5">
+          <h3 className="text-base font-bold text-text-bright flex items-center gap-2 mb-4">
+            <CheckCircle2 className="w-4 h-4 text-safe" />
+            Analysis Complete
+          </h3>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-surface-2/50 rounded-xl p-4 text-center border border-border-faint">
+              <p className="text-2xl font-bold text-text-bright">{summary.totalFindings}</p>
+              <p className="text-xs text-text-dim mt-1">Total Findings</p>
             </div>
-          </motion.div>
-        )}
-
-        {/* Navigation Tabs */}
-        <motion.div 
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="grid grid-cols-3 gap-4"
-        >
-          <Link href={`/projects/${id}/history`} className="group flex flex-col items-center gap-3 bg-[#111] hover:bg-gray-900/50 border border-gray-800 hover:border-blue-500/30 rounded-2xl p-5 transition-all shadow-lg">
-            <div className="bg-blue-900/20 p-3 rounded-xl group-hover:bg-blue-600/20 transition">
-              <Clock className="w-6 h-6 text-blue-400" />
+            <div className="bg-surface-2/50 rounded-xl p-4 text-center border border-border-faint">
+              <p className={`text-2xl font-bold ${summary.riskScore >= 70 ? 'text-critical' : summary.riskScore >= 40 ? 'text-high' : 'text-safe'}`}>
+                {summary.riskScore}/100
+              </p>
+              <p className="text-xs text-text-dim mt-1">Risk Score</p>
             </div>
-            <span className="text-sm font-semibold text-gray-200">History</span>
-            <span className="text-xs text-gray-500">View past analyses</span>
-          </Link>
-          <Link href={`/projects/${id}/scorecard`} className="group flex flex-col items-center gap-3 bg-[#111] hover:bg-gray-900/50 border border-gray-800 hover:border-emerald-500/30 rounded-2xl p-5 transition-all shadow-lg">
-            <div className="bg-emerald-900/20 p-3 rounded-xl group-hover:bg-emerald-600/20 transition">
-              <BarChart3 className="w-6 h-6 text-emerald-400" />
+            <div className="bg-surface-2/50 rounded-xl p-4 text-center border border-border-faint">
+              <p className="text-2xl font-bold text-text-bright">{summary.author}</p>
+              <p className="text-xs text-text-dim mt-1">Author</p>
             </div>
-            <span className="text-sm font-semibold text-gray-200">Scorecard</span>
-            <span className="text-xs text-gray-500">Team health scores</span>
-          </Link>
-          <Link href={`/projects/${id}/heatmap`} className="group flex flex-col items-center gap-3 bg-[#111] hover:bg-gray-900/50 border border-gray-800 hover:border-orange-500/30 rounded-2xl p-5 transition-all shadow-lg">
-            <div className="bg-orange-900/20 p-3 rounded-xl group-hover:bg-orange-600/20 transition">
-              <Flame className="w-6 h-6 text-orange-400" />
-            </div>
-            <span className="text-sm font-semibold text-gray-200">Heatmap</span>
-            <span className="text-xs text-gray-500">Bug density map</span>
-          </Link>
+          </div>
         </motion.div>
-      </div>
+      )}
+
+      {/* Navigation Cards */}
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-3 gap-4">
+        <Link href={`/projects/${id}/history`} className="glow-card group flex flex-col items-center gap-3 p-5 text-center hover:border-info/30 transition-all">
+          <div className="w-12 h-12 rounded-xl bg-info/10 flex items-center justify-center group-hover:bg-info/15 transition-colors">
+            <Clock className="w-5 h-5 text-info" />
+          </div>
+          <span className="text-sm font-semibold text-text-bright">History</span>
+          <span className="text-xs text-text-dim">Past analyses</span>
+        </Link>
+        <Link href={`/projects/${id}/scorecard`} className="glow-card group flex flex-col items-center gap-3 p-5 text-center hover:border-safe/30 transition-all">
+          <div className="w-12 h-12 rounded-xl bg-safe/10 flex items-center justify-center group-hover:bg-safe/15 transition-colors">
+            <BarChart3 className="w-5 h-5 text-safe" />
+          </div>
+          <span className="text-sm font-semibold text-text-bright">Scorecard</span>
+          <span className="text-xs text-text-dim">Team health</span>
+        </Link>
+        <Link href={`/projects/${id}/heatmap`} className="glow-card group flex flex-col items-center gap-3 p-5 text-center hover:border-high/30 transition-all">
+          <div className="w-12 h-12 rounded-xl bg-high/10 flex items-center justify-center group-hover:bg-high/15 transition-colors">
+            <Flame className="w-5 h-5 text-high" />
+          </div>
+          <span className="text-sm font-semibold text-text-bright">Heatmap</span>
+          <span className="text-xs text-text-dim">Bug density</span>
+        </Link>
+      </motion.div>
     </div>
   );
 }

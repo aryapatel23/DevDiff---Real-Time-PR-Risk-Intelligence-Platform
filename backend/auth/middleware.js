@@ -23,13 +23,19 @@ function sleep(ms) {
 }
 
 async function getUserWithRetry(admin, token) {
-  try {
-    return await admin.auth.getUser(token);
-  } catch (err) {
-    if (!isNetworkTimeout(err)) throw err;
-    await sleep(250);
-    return admin.auth.getUser(token);
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY = 500;
+  let lastErr;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      return await admin.auth.getUser(token);
+    } catch (err) {
+      lastErr = err;
+      if (!isNetworkTimeout(err)) throw err;
+      if (attempt < MAX_RETRIES - 1) await sleep(RETRY_DELAY * (attempt + 1));
+    }
   }
+  throw lastErr;
 }
 
 async function requireAuth(req, res, next) {

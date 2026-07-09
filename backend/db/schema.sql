@@ -13,9 +13,12 @@ CREATE TABLE IF NOT EXISTS public.projects (
   github_repo   TEXT NOT NULL,
   description   TEXT,
   is_private    BOOLEAN DEFAULT FALSE,
-  import_status TEXT DEFAULT 'pending',
-  import_count  INTEGER DEFAULT 0,
-  created_at    TIMESTAMPTZ DEFAULT NOW()
+  import_status    TEXT DEFAULT 'pending',
+  import_count     INTEGER DEFAULT 0,
+  analysis_status  TEXT DEFAULT 'idle',
+  analysis_count   INTEGER DEFAULT 0,
+  analysis_total   INTEGER DEFAULT 0,
+  created_at       TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS public.pull_requests (
@@ -136,3 +139,11 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Migration: add analysis tracking columns to projects
+DO $$ BEGIN
+  ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS analysis_status TEXT DEFAULT 'idle';
+  ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS analysis_count  INTEGER DEFAULT 0;
+  ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS analysis_total  INTEGER DEFAULT 0;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;

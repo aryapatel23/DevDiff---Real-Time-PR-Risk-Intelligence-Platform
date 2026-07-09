@@ -1,7 +1,7 @@
 export default function ConfidenceBadge({ score }: { score: number }) {
   const rounded = Math.round(score);
   const color =
-    rounded >= 80 ? 'bg-red-900 text-red-300' :
+    rounded >= 80 ? 'bg-green-900 text-green-300' :
     rounded >= 60 ? 'bg-amber-900 text-amber-300' :
                     'bg-gray-800 text-gray-400';
   return (

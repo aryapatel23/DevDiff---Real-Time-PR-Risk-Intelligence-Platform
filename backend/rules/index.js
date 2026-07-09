@@ -29,6 +29,10 @@ const ALL_RULES = [
 const DETERMINISTIC_RULES = new Set([
   'secret-leak', 'eval-usage', 'sql-injection', 'prototype-pollution',
   'jwt-no-expiry', 'sensitive-data-log',
+  'null-deref', 'unhandled-promise', 'xss-innerhtml', 'path-traversal',
+  'weak-hash', 'insecure-random', 'hardcoded-ip', 'missing-validation',
+  'reDoS', 'console-log', 'memory-leak', 'async-await-leak',
+  'missing-rate-limit', 'cors-wildcard',
 ]);
 
 const CRITICAL_FILE_RE = /\b(auth|login|password|payment|billing|token|secret|session|admin|db|database)\b/i;
@@ -102,8 +106,6 @@ function runRules(line, filename, patterns = [], surroundingLines = []) {
     const historicalCount = patternMap[rule.name] || 0;
     let severity = rule.severity;
 
-    if (severity === 'warning' && isCriticalFile && hasUserInput) severity = 'critical';
-    if (severity === 'critical' && hasNullGuard && !hasUserInput) severity = 'warning';
     if (isTestFile) severity = 'info';
 
     const baseWeight = rule.severity === 'critical' ? 1.2 : rule.severity === 'warning' ? 0.8 : 0.3;

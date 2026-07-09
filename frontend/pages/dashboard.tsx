@@ -3,16 +3,17 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useAuth } from '../lib/auth';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  FolderGit2, 
-  ShieldAlert, 
-  Activity, 
-  Lock, 
-  Plus, 
-  LogOut, 
-  Github, 
+import {
+  FolderGit2,
+  ShieldAlert,
+  Activity,
+  Lock,
+  Plus,
+  Github,
   AlertCircle,
-  FolderOpen
+  FolderOpen,
+  ArrowRight,
+  X,
 } from 'lucide-react';
 
 type Project = {
@@ -23,6 +24,9 @@ type Project = {
   is_private: boolean;
   import_status: string;
   import_count: number;
+  analysis_status?: string;
+  analysis_count?: number;
+  analysis_total?: number;
   pr_count: number;
   scanned_pr_count?: number;
   historical_pr_count?: number;
@@ -36,6 +40,38 @@ type Repo = {
 };
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+function ScoreRing({ score, size = 48 }: { score: number; size?: number }) {
+  const radius = (size - 8) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const progress = (score / 100) * circumference;
+  const color = score >= 70 ? 'var(--critical)' : score >= 40 ? 'var(--high)' : 'var(--low)';
+
+  return (
+    <svg width={size} height={size} className="score-ring">
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke="var(--surface-3)"
+        strokeWidth={4}
+      />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke={color}
+        strokeWidth={4}
+        strokeLinecap="round"
+        strokeDasharray={circumference}
+        strokeDashoffset={circumference - progress}
+        className="score-ring-fill"
+      />
+    </svg>
+  );
+}
 
 export default function DashboardPage() {
   const { session, loading, apiHeaders, signOut } = useAuth();
@@ -53,7 +89,7 @@ export default function DashboardPage() {
   const [selectedRepo, setSelectedRepo] = useState('');
   const [repoInputMode, setRepoInputMode] = useState<'list' | 'manual'>('list');
   const [manualRepo, setManualRepo] = useState('');
-  
+
   const [initialLoading, setInitialLoading] = useState(true);
 
   useEffect(() => {
@@ -63,12 +99,24 @@ export default function DashboardPage() {
   async function loadProjects() {
     if (!session) return;
     try {
-      const res = await fetch(`${API}/api/projects`, { headers: apiHeaders() });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const res = await fetch(`${API}/api/projects`, {
+        headers: apiHeaders(),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load projects');
       setProjects(data);
     } catch (e: any) {
-      setError(e.message || 'Failed to load projects');
+      if (e.name === 'AbortError') {
+        setError('Request timed out. Check if the backend is running on port 4000.');
+      } else if (e.message?.includes('Failed to fetch') || e.message?.includes('NetworkError')) {
+        setError('Cannot connect to backend. Make sure the server is running (npm run dev).');
+      } else {
+        setError(e.message || 'Failed to load projects');
+      }
     } finally {
       setInitialLoading(false);
     }
@@ -83,7 +131,13 @@ export default function DashboardPage() {
     setReposLoading(true);
     setError('');
     try {
-      const res = await fetch(`${API}/api/auth/repos`, { headers: apiHeaders() });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const res = await fetch(`${API}/api/auth/repos`, {
+        headers: apiHeaders(),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load repos');
       setRepos(data);
@@ -91,8 +145,11 @@ export default function DashboardPage() {
       setRepoInputMode(data[0] ? 'list' : 'manual');
       setManualRepo('');
     } catch (e: any) {
-      // It's possible the user logged in before GitHub scope addition, error might be thrown.
-      setError(e.message || 'Failed to load repos');
+      if (e.name === 'AbortError') {
+        setError('GitHub repos timed out. You can enter the repo manually.');
+      } else {
+        setError(e.message || 'Failed to load repos');
+      }
       setRepoInputMode('manual');
     } finally {
       setReposLoading(false);
@@ -105,6 +162,8 @@ export default function DashboardPage() {
     try {
       const repoValue = repoInputMode === 'manual' ? manualRepo.trim() : selectedRepo;
       const chosen = repos.find(r => r.full_name === repoValue);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
       const res = await fetch(`${API}/api/projects`, {
         method: 'POST',
         headers: apiHeaders(),
@@ -114,7 +173,9 @@ export default function DashboardPage() {
           description,
           is_private: chosen?.private || false,
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to create project');
 
@@ -123,219 +184,287 @@ export default function DashboardPage() {
       setDescription('');
       setSelectedRepo('');
       setManualRepo('');
-      await loadProjects();
+      // Redirect to the new project page
+      router.push(`/projects/${data.id}`);
     } catch (e: any) {
-      setError(e.message || 'Failed to create project');
+      if (e.name === 'AbortError') {
+        setError('Project creation timed out. The server may be overloaded.');
+      } else if (e.message?.includes('Failed to fetch') || e.message?.includes('NetworkError')) {
+        setError('Cannot connect to backend. Make sure the server is running.');
+      } else {
+        setError(e.message || 'Failed to create project');
+      }
     } finally {
       setSaving(false);
     }
   }
 
-  const sortedProjects = useMemo(() => projects, [projects]);
+  const sortedProjects = useMemo(() => {
+    return [...projects].sort((a, b) => (b.finding_count || 0) - (a.finding_count || 0));
+  }, [projects]);
 
-  if (loading || !session) return <div className="min-h-screen bg-[#0a0a0a]" />;
+  const totalFindings = useMemo(() => projects.reduce((sum, p) => sum + (p.finding_count || 0), 0), [projects]);
+  const totalPrs = useMemo(() => projects.reduce((sum, p) => sum + (p.pr_count || 0), 0), [projects]);
+
+  if (loading || !session) return <div className="min-h-screen bg-void" />;
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-gray-100 p-6 font-sans">
-      <div className="max-w-6xl mx-auto">
-        <header className="flex items-center justify-between mb-10 pb-6 border-b border-gray-800/50">
+    <div className="p-6 md:p-8 max-w-[1200px] mx-auto">
+      {/* Header */}
+      <header className="mb-10">
+        <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
+            <h1 className="text-3xl font-extrabold tracking-tight gradient-text">
               Dashboard
             </h1>
-            <p className="text-sm text-gray-500 mt-1">Manage your active projects and security findings</p>
+            <p className="text-text-dim text-sm mt-1">Manage your projects and security findings</p>
           </div>
-          <div className="flex gap-3">
-            <button 
-              onClick={openAddModal} 
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 transition shadow-lg shadow-blue-900/20 px-4 py-2 rounded-xl text-sm font-medium"
-            >
-              <Plus className="w-4 h-4" />
-              New Project
-            </button>
-            <button 
-              onClick={signOut} 
-              className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 transition px-4 py-2 rounded-xl text-sm font-medium"
-            >
-              <LogOut className="w-4 h-4" />
-              Sign out
-            </button>
-          </div>
-        </header>
-
-        {error && (
-          <motion.div 
-            initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
-            className="mb-8 flex items-center gap-3 bg-red-950/50 border border-red-900/50 rounded-xl px-4 py-3 text-sm text-red-200"
+          <button
+            onClick={openAddModal}
+            className="btn-primary flex items-center gap-2 text-sm"
           >
-            <AlertCircle className="w-5 h-5 text-red-400" />
-            {error}
+            <Plus className="w-4 h-4" />
+            New Project
+          </button>
+        </div>
+
+        {/* Stats bar */}
+        {sortedProjects.length > 0 && (
+          <div className="flex gap-6 mt-6 p-4 rounded-xl bg-surface-1 border border-border-faint">
+            <div className="flex items-center gap-2">
+              <FolderGit2 className="w-4 h-4 text-accent" />
+              <span className="text-sm text-text-dim">Projects</span>
+              <span className="text-sm font-bold text-text-bright">{projects.length}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-info" />
+              <span className="text-sm text-text-dim">PRs Indexed</span>
+              <span className="text-sm font-bold text-text-bright">{totalPrs}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-high" />
+              <span className="text-sm text-text-dim">Findings</span>
+              <span className="text-sm font-bold text-text-bright">{totalFindings}</span>
+            </div>
+          </div>
+        )}
+      </header>
+
+      {/* Error */}
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="mb-6 flex items-center gap-3 bg-critical/10 border border-critical/20 rounded-xl px-4 py-3 text-sm text-critical"
+          >
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span className="flex-1">{error}</span>
+            <button onClick={() => setError('')} className="text-critical/60 hover:text-critical">
+              <X className="w-4 h-4" />
+            </button>
           </motion.div>
         )}
+      </AnimatePresence>
 
-        {initialLoading ? (
-          <div className="flex flex-col items-center justify-center py-20">
-            <Activity className="w-8 h-8 text-blue-500 animate-spin" />
-            <p className="mt-4 text-gray-500">Loading your projects...</p>
+      {/* Loading */}
+      {initialLoading ? (
+        <div className="flex flex-col items-center justify-center py-24">
+          <Activity className="w-8 h-8 text-accent animate-spin" />
+          <p className="mt-4 text-text-dim text-sm">Loading your projects...</p>
+        </div>
+      ) : sortedProjects.length === 0 ? (
+        /* Empty State */
+        <motion.div
+          initial={{ opacity: 0, scale: 0.97 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="flex flex-col items-center justify-center p-16 glow-card text-center"
+        >
+          <div className="w-16 h-16 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center mb-6">
+            <FolderOpen className="w-8 h-8 text-accent" />
           </div>
-        ) : sortedProjects.length === 0 ? (
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="flex flex-col items-center justify-center p-16 bg-[#111] border border-gray-800/60 rounded-3xl text-center shadow-2xl"
-          >
-            <div className="bg-gray-800/50 p-6 rounded-full mb-6 relative">
-              <FolderOpen className="w-12 h-12 text-blue-400" />
-              <div className="absolute top-0 right-0 w-4 h-4 bg-blue-500 rounded-full animate-ping" />
-            </div>
-            <h2 className="text-2xl font-bold text-white mb-2">No projects found</h2>
-            <p className="text-gray-400 max-w-md mb-8">
-              You haven't added any GitHub repositories yet. Connect a project to start analyzing pull requests for security risks and code quality issues.
-            </p>
-            <button 
-              onClick={openAddModal} 
-              className="bg-white text-black hover:bg-gray-200 transition px-6 py-3 rounded-xl font-semibold shadow-lg flex items-center gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              Connect your first repository
-            </button>
-          </motion.div>
-        ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
-            <AnimatePresence>
-              {sortedProjects.map((p, idx) => (
-                <motion.div
-                  key={p.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.05 }}
+          <h2 className="text-2xl font-bold text-text-bright mb-2">No projects yet</h2>
+          <p className="text-text-dim max-w-md mb-8 text-sm leading-relaxed">
+            Connect a GitHub repository to start analyzing pull requests for security risks and code quality issues.
+          </p>
+          <button onClick={openAddModal} className="btn-primary flex items-center gap-2">
+            <Plus className="w-4 h-4" />
+            Connect your first repository
+          </button>
+        </motion.div>
+      ) : (
+        /* Project Grid */
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <AnimatePresence>
+            {sortedProjects.map((p, idx) => (
+              <motion.div
+                key={p.id}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.04, duration: 0.3 }}
+              >
+                <Link
+                  href={`/projects/${p.id}`}
+                  className="group glow-card flex flex-col h-full p-5 hover:border-accent/30 transition-all duration-200"
                 >
-                  <Link 
-                    href={`/projects/${p.id}`} 
-                    className="group flex flex-col h-full bg-[#111] border border-gray-800 rounded-2xl p-5 hover:border-blue-500/50 hover:bg-gray-900/50 transition-all duration-300 shadow-lg"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className="bg-blue-900/30 p-2 rounded-lg group-hover:bg-blue-600/20 transition-colors">
-                          <FolderGit2 className="w-5 h-5 text-blue-400" />
-                        </div>
-                        <h3 className="font-bold text-lg text-gray-100 truncate">{p.name}</h3>
+                  {/* Top row */}
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center shrink-0 group-hover:bg-accent/15 transition-colors">
+                        <FolderGit2 className="w-5 h-5 text-accent" />
                       </div>
-                      {p.is_private && (
-                        <span title="Private Repository" className="bg-gray-800 text-gray-400 p-1.5 rounded-md">
-                          <Lock className="w-3.5 h-3.5" />
+                      <div className="min-w-0">
+                        <h3 className="font-bold text-text-bright truncate text-sm">{p.name}</h3>
+                        <p className="text-xs text-text-dim font-mono flex items-center gap-1 mt-0.5 truncate">
+                          <Github className="w-3 h-3 shrink-0" />
+                          {p.github_repo}
+                        </p>
+                      </div>
+                    </div>
+                    {p.is_private && (
+                      <Lock className="w-3.5 h-3.5 text-text-dim shrink-0 mt-1" />
+                    )}
+                  </div>
+
+                  {/* Description */}
+                  <p className="text-xs text-text-dim mb-4 line-clamp-2 flex-grow leading-relaxed">
+                    {p.description || 'No description provided.'}
+                  </p>
+
+                  {/* Status */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-xs">
+                      {p.import_status === 'pending' && (
+                        <span className="badge badge-info">Pending</span>
+                      )}
+                      {p.import_status === 'running' && (
+                        <span className="badge badge-accent">
+                          <Activity className="w-3 h-3 animate-pulse" />
+                          Importing ({p.import_count}/30)
                         </span>
                       )}
+                      {p.import_status === 'done' && p.analysis_status === 'running' && (
+                        <span className="badge badge-accent">
+                          <Activity className="w-3 h-3 animate-pulse" />
+                          Analyzing ({p.analysis_count}/{p.analysis_total})
+                        </span>
+                      )}
+                      {p.import_status === 'done' && p.analysis_status === 'done' && (
+                        <span className="badge badge-low">
+                          <ShieldAlert className="w-3 h-3" />
+                          {p.import_count} PRs · {p.analysis_count} analyzed
+                        </span>
+                      )}
+                      {p.import_status === 'done' && !p.analysis_status && (
+                        <span className="badge badge-low">{p.import_count} PRs indexed</span>
+                      )}
+                      {p.import_status === 'done' && p.analysis_status === 'idle' && (
+                        <span className="badge badge-low">{p.import_count} PRs indexed</span>
+                      )}
+                      {p.import_status === 'error' && (
+                        <span className="badge badge-critical">Import failed</span>
+                      )}
+                      {p.analysis_status === 'error' && (
+                        <span className="badge badge-high">Analysis failed</span>
+                      )}
                     </div>
-                    
-                    <p className="text-xs font-mono text-gray-500 mb-4 truncate flex items-center gap-1.5">
-                      <Github className="w-3 h-3" />
-                      {p.github_repo}
-                    </p>
-                    
-                    <p className="text-sm text-gray-400 mb-6 line-clamp-2 flex-grow">
-                      {p.description || 'No description provided for this project.'}
-                    </p>
 
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-xs font-medium">
-                        {p.import_status === 'pending' && <span className="flex items-center gap-1.5 text-gray-500"><Activity className="w-3 h-3"/> Pending sync</span>}
-                        {p.import_status === 'running' && <span className="flex items-center gap-1.5 text-blue-400"><Activity className="w-3 h-3 animate-pulse"/> Syncing ({p.import_count}/30)...</span>}
-                        {p.import_status === 'done' && <span className="flex items-center gap-1.5 text-emerald-400"><Activity className="w-3 h-3"/> {p.import_count} PRs indexed</span>}
-                        {p.import_status === 'error' && <span className="flex items-center gap-1.5 text-red-400"><AlertCircle className="w-3 h-3"/> Sync failed</span>}
-                      </div>
-
-                      <div className="flex items-center gap-4 border-t border-gray-800/60 pt-3 mt-auto">
-                        <div className="flex items-center gap-1.5 text-gray-400 text-xs">
+                    {/* Bottom stats */}
+                    <div className="flex items-center justify-between border-t border-border-faint pt-3">
+                      <div className="flex items-center gap-4">
+                        <span className="flex items-center gap-1.5 text-xs text-text-dim">
                           <FolderGit2 className="w-3.5 h-3.5" />
-                          <span>{p.pr_count} PRs</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-amber-400/90 text-xs">
+                          {p.pr_count} PRs
+                        </span>
+                        <span className="flex items-center gap-1.5 text-xs text-high">
                           <ShieldAlert className="w-3.5 h-3.5" />
-                          <span>{p.finding_count} risks</span>
-                        </div>
+                          {p.finding_count} risks
+                        </span>
                       </div>
+                      <ArrowRight className="w-4 h-4 text-text-dim group-hover:text-accent group-hover:translate-x-0.5 transition-all" />
                     </div>
-                  </Link>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
-        )}
-      </div>
+                  </div>
+                </Link>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
 
+      {/* Add Project Modal */}
       <AnimatePresence>
         {showAdd && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+            className="fixed inset-0 bg-void/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"
           >
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="w-full max-w-lg bg-[#111] border border-gray-800 rounded-3xl p-6 shadow-2xl"
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 12 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 12 }}
+              className="w-full max-w-lg glow-card glow-border p-6"
             >
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold flex items-center gap-2">
-                  <Plus className="w-5 h-5 text-blue-500" />
+                <h2 className="text-lg font-bold text-text-bright flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center">
+                    <Plus className="w-4 h-4 text-accent" />
+                  </div>
                   Add New Project
                 </h2>
-                <button onClick={() => setShowAdd(false)} className="text-gray-500 hover:text-white p-1">
-                  ✕
+                <button onClick={() => setShowAdd(false)} className="p-1.5 rounded-lg text-text-dim hover:text-text-bright hover:bg-surface-2 transition-all">
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1.5">Project Name</label>
-                  <input 
-                    value={name} 
-                    onChange={e => setName(e.target.value)} 
+                  <label className="block text-xs font-semibold text-text-dim mb-1.5 uppercase tracking-wider">Project Name</label>
+                  <input
+                    value={name}
+                    onChange={e => setName(e.target.value)}
                     placeholder="e.g. Core API Backend"
-                    className="w-full bg-gray-900 border border-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition rounded-xl px-4 py-2.5 text-sm" 
+                    className="input-field"
                   />
                 </div>
 
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-sm font-medium text-gray-400">Target Repository</label>
-                    <div className="flex bg-gray-900 rounded-lg p-0.5 border border-gray-800">
+                    <label className="text-xs font-semibold text-text-dim uppercase tracking-wider">Target Repository</label>
+                    <div className="flex bg-surface-2 rounded-lg p-0.5 border border-border-faint">
                       <button
                         onClick={() => setRepoInputMode('list')}
-                        type="button"
-                        className={`px-3 py-1 rounded-md text-xs font-medium transition ${repoInputMode === 'list' ? 'bg-gray-800 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                        className={`px-3 py-1 rounded-md text-xs font-medium transition ${repoInputMode === 'list' ? 'bg-surface-3 text-text-bright shadow-sm' : 'text-text-dim hover:text-text-normal'}`}
                       >
                         Select
                       </button>
                       <button
                         onClick={() => setRepoInputMode('manual')}
-                        type="button"
-                        className={`px-3 py-1 rounded-md text-xs font-medium transition ${repoInputMode === 'manual' ? 'bg-gray-800 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                        className={`px-3 py-1 rounded-md text-xs font-medium transition ${repoInputMode === 'manual' ? 'bg-surface-3 text-text-bright shadow-sm' : 'text-text-dim hover:text-text-normal'}`}
                       >
                         Manual
                       </button>
                     </div>
                   </div>
-                  
+
                   {reposLoading ? (
-                    <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-gray-400">
-                      <Activity className="w-4 h-4 animate-spin text-blue-500" /> Connecting to GitHub...
+                    <div className="input-field flex items-center gap-3 text-text-dim">
+                      <Activity className="w-4 h-4 animate-spin text-accent" /> Connecting to GitHub...
                     </div>
                   ) : repoInputMode === 'manual' ? (
                     <input
                       value={manualRepo}
                       onChange={e => setManualRepo(e.target.value)}
                       placeholder="owner/repo"
-                      className="w-full bg-gray-900 border border-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition rounded-xl px-4 py-2.5 text-sm font-mono"
+                      className="input-field font-mono"
                     />
                   ) : (
-                    <select 
-                      value={selectedRepo} 
-                      onChange={e => setSelectedRepo(e.target.value)} 
-                      className="w-full bg-gray-900 border border-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition rounded-xl px-4 py-2.5 text-sm"
+                    <select
+                      value={selectedRepo}
+                      onChange={e => setSelectedRepo(e.target.value)}
+                      className="input-field"
                     >
                       {repos.map(r => (
                         <option key={r.full_name} value={r.full_name}>
@@ -347,23 +476,23 @@ export default function DashboardPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1.5">Description (Optional)</label>
-                  <textarea 
-                    value={description} 
-                    onChange={e => setDescription(e.target.value)} 
+                  <label className="block text-xs font-semibold text-text-dim mb-1.5 uppercase tracking-wider">Description (Optional)</label>
+                  <textarea
+                    value={description}
+                    onChange={e => setDescription(e.target.value)}
                     placeholder="Brief details about this project..."
-                    className="w-full bg-gray-900 border border-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition rounded-xl px-4 py-2.5 text-sm resize-none" 
-                    rows={3} 
+                    className="input-field resize-none"
+                    rows={3}
                   />
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-gray-800/50">
-                <button onClick={() => setShowAdd(false)} className="px-5 py-2.5 text-gray-400 hover:text-white transition font-medium text-sm">Cancel</button>
-                <button 
-                  onClick={createProject} 
-                  disabled={saving || !name || (repoInputMode === 'manual' ? !manualRepo.trim() : !selectedRepo)} 
-                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 transition shadow-lg shadow-blue-900/20 rounded-xl font-medium text-sm disabled:opacity-50 flex items-center gap-2"
+              <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-border-faint">
+                <button onClick={() => setShowAdd(false)} className="btn-ghost text-sm">Cancel</button>
+                <button
+                  onClick={createProject}
+                  disabled={saving || !name || (repoInputMode === 'manual' ? !manualRepo.trim() : !selectedRepo)}
+                  className="btn-primary text-sm flex items-center gap-2 disabled:opacity-40"
                 >
                   {saving && <Activity className="w-4 h-4 animate-spin" />}
                   {saving ? 'Creating...' : 'Create Project'}
