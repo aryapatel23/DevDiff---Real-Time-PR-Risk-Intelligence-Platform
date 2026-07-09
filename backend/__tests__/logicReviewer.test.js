@@ -2,18 +2,16 @@
  * Tests for analysis/logicReviewer.js
  *
  * buildPrompt and reviewChunk are not exported, so they are tested
- * indirectly through reviewAllChunks. We mock axios to control
- * Groq API responses.
+ * indirectly through reviewAllChunks. We mock the CascadeFlow router
+ * to control LLM responses.
  */
 
-const axios = require('axios');
+const { routeReview } = require('../cascade/llmRouter');
 
-jest.mock('axios');
+jest.mock('../cascade/llmRouter');
 jest.mock('dotenv', () => ({ config: jest.fn() }));
 
 const { reviewAllChunks } = require('../analysis/logicReviewer');
-
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -33,79 +31,66 @@ function makeChunk(overrides = {}) {
   };
 }
 
-function mockGroqResponse(findings) {
-  axios.post.mockResolvedValueOnce({
-    data: {
-      choices: [
-        { message: { content: JSON.stringify(findings) } },
-      ],
-    },
+function mockCascadeResponse(findings) {
+  routeReview.mockResolvedValueOnce({
+    content: JSON.stringify(findings),
+    model: 'qwen/qwen3-32b',
+    tier: 'free',
+    qualityScore: 0.95,
   });
 }
 
-function mockGroqRawResponse(rawText) {
-  axios.post.mockResolvedValueOnce({
-    data: {
-      choices: [
-        { message: { content: rawText } },
-      ],
-    },
+function mockCascadeRawResponse(rawText) {
+  routeReview.mockResolvedValueOnce({
+    content: rawText,
+    model: 'qwen/qwen3-32b',
+    tier: 'free',
+    qualityScore: 0.8,
   });
 }
 
 describe('logicReviewer', () => {
-  // ── buildPrompt (verified via API call content) ─────────────────────
+  // ── buildPrompt (verified via routeReview call content) ─────────────
 
   describe('buildPrompt (via reviewAllChunks)', () => {
     test('generates prompt with function code and changed lines', async () => {
       const chunk = makeChunk();
-      mockGroqResponse([]);
+      mockCascadeResponse([]);
 
       await reviewAllChunks([chunk], jest.fn());
 
-      const callBody = axios.post.mock.calls[0][1];
-      const userMsg = callBody.messages[1].content;
-      expect(userMsg).toContain('File: src/app.js');
-      expect(userMsg).toContain('Function: process (lines 1–4)');
-      expect(userMsg).toContain('Changed lines: 2');
-      expect(userMsg).toContain('function process()');
-      expect(userMsg).toContain('Line 2:');
+      const prompt = routeReview.mock.calls[0][0];
+      expect(prompt).toContain('File: src/app.js');
+      expect(prompt).toContain('Function: process (lines 1–4)');
+      expect(prompt).toContain('Changed lines: 2');
+      expect(prompt).toContain('function process()');
+      expect(prompt).toContain('Line 2:');
     });
   });
 
   // ── reviewChunk ─────────────────────────────────────────────────────
 
   describe('reviewChunk (via reviewAllChunks)', () => {
-    test('calls Groq API with correct parameters', async () => {
+    test('calls CascadeFlow routeReview with correct parameters', async () => {
       const chunk = makeChunk();
-      mockGroqResponse([]);
+      mockCascadeResponse([]);
 
       await reviewAllChunks([chunk], jest.fn());
 
-      expect(axios.post).toHaveBeenCalledTimes(1);
-      expect(axios.post).toHaveBeenCalledWith(
-        GROQ_URL,
+      expect(routeReview).toHaveBeenCalledTimes(1);
+      expect(routeReview).toHaveBeenCalledWith(
+        expect.any(String),  // prompt
+        expect.any(String),  // system prompt
         expect.objectContaining({
-          model: 'llama-3.3-70b-versatile',
-          max_tokens: 1024,
-          messages: expect.arrayContaining([
-            expect.objectContaining({ role: 'system' }),
-            expect.objectContaining({ role: 'user' }),
-          ]),
-        }),
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            'Authorization': 'Bearer gsk_test_key',
-            'Content-Type': 'application/json',
-          }),
-          timeout: 15000,
+          filename: 'src/app.js',
+          functionName: 'process',
         })
       );
     });
 
     test('handles API errors gracefully', async () => {
       const chunk = makeChunk();
-      axios.post.mockRejectedValueOnce(new Error('API timeout'));
+      routeReview.mockRejectedValueOnce(new Error('API timeout'));
 
       const onFinding = jest.fn();
       const results = await reviewAllChunks([chunk], onFinding);
@@ -116,7 +101,7 @@ describe('logicReviewer', () => {
 
     test('handles malformed JSON response', async () => {
       const chunk = makeChunk();
-      mockGroqRawResponse('This is not valid JSON at all');
+      mockCascadeRawResponse('This is not valid JSON at all');
 
       const results = await reviewAllChunks([chunk], jest.fn());
       expect(results).toEqual([]);
@@ -125,7 +110,7 @@ describe('logicReviewer', () => {
     test('handles response wrapped in markdown fences', async () => {
       const chunk = makeChunk();
       const findings = [{ type: 'logic', severity: 'warning', line: 2, message: 'issue', confidence: 80 }];
-      mockGroqRawResponse('```json\n' + JSON.stringify(findings) + '\n```');
+      mockCascadeRawResponse('```json\n' + JSON.stringify(findings) + '\n```');
 
       const results = await reviewAllChunks([chunk], jest.fn());
       expect(results).toHaveLength(1);
@@ -134,7 +119,7 @@ describe('logicReviewer', () => {
 
     test('normalizes severity to valid values', async () => {
       const chunk = makeChunk();
-      mockGroqResponse([
+      mockCascadeResponse([
         { type: 'logic', severity: 'bad_severity', line: 1, message: 'm', confidence: 50 },
       ]);
 
@@ -144,7 +129,7 @@ describe('logicReviewer', () => {
 
     test('clamps confidence to 0-100 range', async () => {
       const chunk = makeChunk();
-      mockGroqResponse([
+      mockCascadeResponse([
         { type: 'logic', severity: 'warning', line: 1, message: 'm', confidence: 150 },
       ]);
 
@@ -154,7 +139,7 @@ describe('logicReviewer', () => {
 
     test('defaults confidence to 70 when missing', async () => {
       const chunk = makeChunk();
-      mockGroqResponse([
+      mockCascadeResponse([
         { type: 'logic', severity: 'warning', line: 1, message: 'm' },
       ]);
 
@@ -166,7 +151,7 @@ describe('logicReviewer', () => {
       const chunk = makeChunk();
       const longMsg = 'x'.repeat(400);
       const longFix = 'y'.repeat(400);
-      mockGroqResponse([
+      mockCascadeResponse([
         { type: 'logic', severity: 'warning', line: 1, message: longMsg, fix: longFix, confidence: 50 },
       ]);
 
@@ -177,7 +162,7 @@ describe('logicReviewer', () => {
 
     test('returns empty array when response is not an array', async () => {
       const chunk = makeChunk();
-      mockGroqRawResponse('{"not": "an array"}');
+      mockCascadeRawResponse('{"not": "an array"}');
 
       const results = await reviewAllChunks([chunk], jest.fn());
       expect(results).toEqual([]);
@@ -185,7 +170,7 @@ describe('logicReviewer', () => {
 
     test('skips findings without message or severity', async () => {
       const chunk = makeChunk();
-      mockGroqResponse([
+      mockCascadeResponse([
         { type: 'logic', severity: 'warning', line: 1 },
         { type: 'logic', message: 'no severity', line: 2 },
         { type: 'logic', severity: 'warning', message: 'valid', line: 3, confidence: 80 },
@@ -198,7 +183,7 @@ describe('logicReviewer', () => {
 
     test('adds metadata fields to each finding', async () => {
       const chunk = makeChunk({ filename: 'src/test.js', functionName: 'handler' });
-      mockGroqResponse([
+      mockCascadeResponse([
         { type: 'logic', severity: 'critical', line: 5, message: 'bug', confidence: 90 },
       ]);
 
@@ -227,11 +212,11 @@ describe('logicReviewer', () => {
         makeChunk({ filename: 'd.js', functionName: 'd' }),
       ];
 
-      chunks.forEach(() => mockGroqResponse([]));
+      chunks.forEach(() => mockCascadeResponse([]));
 
       await reviewAllChunks(chunks, jest.fn());
 
-      expect(axios.post).toHaveBeenCalledTimes(4);
+      expect(routeReview).toHaveBeenCalledTimes(4);
     });
 
     test('returns findings array', async () => {
@@ -240,8 +225,8 @@ describe('logicReviewer', () => {
         makeChunk({ filename: 'b.js' }),
       ];
 
-      mockGroqResponse([{ type: 'logic', severity: 'warning', line: 1, message: 'a', confidence: 80 }]);
-      mockGroqResponse([{ type: 'logic', severity: 'critical', line: 2, message: 'b', confidence: 90 }]);
+      mockCascadeResponse([{ type: 'logic', severity: 'warning', line: 1, message: 'a', confidence: 80 }]);
+      mockCascadeResponse([{ type: 'logic', severity: 'critical', line: 2, message: 'b', confidence: 90 }]);
 
       const results = await reviewAllChunks(chunks, jest.fn());
       expect(Array.isArray(results)).toBe(true);
@@ -261,7 +246,7 @@ describe('logicReviewer', () => {
       const results = await reviewAllChunks(chunks, onFinding);
 
       expect(results).toEqual([]);
-      expect(axios.post).not.toHaveBeenCalled();
+      expect(routeReview).not.toHaveBeenCalled();
       expect(onFinding).not.toHaveBeenCalled();
     });
 
@@ -272,7 +257,7 @@ describe('logicReviewer', () => {
 
       const results = await reviewAllChunks([chunk], jest.fn());
       expect(results).toEqual([]);
-      expect(axios.post).not.toHaveBeenCalled();
+      expect(routeReview).not.toHaveBeenCalled();
     });
 
     test('skips when GROQ_API_KEY is not set', async () => {
@@ -281,12 +266,12 @@ describe('logicReviewer', () => {
 
       const results = await reviewAllChunks([chunk], jest.fn());
       expect(results).toEqual([]);
-      expect(axios.post).not.toHaveBeenCalled();
+      expect(routeReview).not.toHaveBeenCalled();
     });
 
     test('calls onFinding callback for each finding', async () => {
       const chunks = [makeChunk()];
-      mockGroqResponse([
+      mockCascadeResponse([
         { type: 'logic', severity: 'warning', line: 1, message: 'issue1', confidence: 80 },
         { type: 'logic', severity: 'critical', line: 3, message: 'issue2', confidence: 95 },
       ]);
@@ -311,18 +296,18 @@ describe('logicReviewer', () => {
       );
 
       chunks.forEach((_, i) => {
-        mockGroqResponse([{ type: 'logic', severity: 'warning', line: 1, message: `issue${i}`, confidence: 70 + i }]);
+        mockCascadeResponse([{ type: 'logic', severity: 'warning', line: 1, message: `issue${i}`, confidence: 70 + i }]);
       });
 
       const results = await reviewAllChunks(chunks, jest.fn());
       expect(results).toHaveLength(7);
-      expect(axios.post).toHaveBeenCalledTimes(7);
+      expect(routeReview).toHaveBeenCalledTimes(7);
     });
 
     test('handles empty chunks array', async () => {
       const results = await reviewAllChunks([], jest.fn());
       expect(results).toEqual([]);
-      expect(axios.post).not.toHaveBeenCalled();
+      expect(routeReview).not.toHaveBeenCalled();
     });
 
     test('handles mixed valid and skipped chunks', async () => {
@@ -331,10 +316,10 @@ describe('logicReviewer', () => {
         makeChunk({ filename: 'src/real.js', fullCode: 'function ok() {\n  const x = 1;\n  return x;\n}' }),
       ];
 
-      mockGroqResponse([]);
+      mockCascadeResponse([]);
 
       const results = await reviewAllChunks(chunks, jest.fn());
-      expect(axios.post).toHaveBeenCalledTimes(1);
+      expect(routeReview).toHaveBeenCalledTimes(1);
     });
   });
 });

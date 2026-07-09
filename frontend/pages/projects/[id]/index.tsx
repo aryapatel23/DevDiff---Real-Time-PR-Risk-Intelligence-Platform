@@ -27,6 +27,7 @@ import {
   Github,
   X,
   Trash2,
+  DollarSign,
 } from 'lucide-react';
 
 type Project = {
@@ -737,7 +738,7 @@ export default function ProjectDetailPage() {
       )}
 
       {/* Navigation Cards */}
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-3 gap-4">
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-4 gap-4">
         <Link href={`/projects/${id}/history`} className="glow-card group flex flex-col items-center gap-3 p-5 text-center hover:border-info/30 transition-all">
           <div className="w-12 h-12 rounded-xl bg-info/10 flex items-center justify-center group-hover:bg-info/15 transition-colors">
             <Clock className="w-5 h-5 text-info" />
@@ -758,6 +759,13 @@ export default function ProjectDetailPage() {
           </div>
           <span className="text-sm font-semibold text-text-bright">Heatmap</span>
           <span className="text-xs text-text-dim">Bug density</span>
+        </Link>
+        <Link href={`/projects/${id}/costs`} className="glow-card group flex flex-col items-center gap-3 p-5 text-center hover:border-accent/30 transition-all">
+          <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center group-hover:bg-accent/15 transition-colors">
+            <DollarSign className="w-5 h-5 text-accent" />
+          </div>
+          <span className="text-sm font-semibold text-text-bright">Costs</span>
+          <span className="text-xs text-text-dim">CascadeFlow</span>
         </Link>
       </motion.div>
     </div>

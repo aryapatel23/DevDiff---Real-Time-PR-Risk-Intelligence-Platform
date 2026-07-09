@@ -1,18 +1,18 @@
 /**
- * logicReviewer.js — Groq version
+ * logicReviewer.js — CascadeFlow version
  *
- * Uses Groq API (llama-3.3-70b-versatile) for logic bug detection.
- * Free tier at console.groq.com — no credit card needed.
+ * Routes LLM code review through CascadeFlow model cascade:
+ * 1. Try free model first (qwen3-32b)
+ * 2. Quality gate: if score < 0.7, escalate to paid model (llama-70b)
+ * 3. Log every decision for audit trail
  *
  * Finds: assignment in conditional, off-by-one, wrong return,
  *        dead code, missing edge case, race conditions.
  * Does NOT find: SQL injection, XSS, eval, secrets — rule engine handles those.
  */
 
-const axios = require('axios');
+const { routeReview } = require('../cascade/llmRouter');
 require('dotenv').config();
-
-const GROQ_API = 'https://api.groq.com/openai/v1/chat/completions';
 
 const SYSTEM = `You are a senior engineer doing a focused code review.
 Find LOGIC BUGS and CODE QUALITY ISSUES only.
@@ -41,40 +41,34 @@ ${chunk.changedLines.map(l => `  Line ${l.lineNo}: ${l.content.trim()}`).join('\
 JSON only.`;
 }
 
-async function reviewChunk(chunk) {
-  if (chunk.fullCode.split('\n').length < 4) return [];
-  if (/\.(test|spec)\.|__tests__/.test(chunk.filename)) return [];
-  if (!process.env.GROQ_API_KEY) return [];
+async function reviewChunk(chunk, metadata = {}) {
+  if (chunk.fullCode.split('\n').length < 4) return { findings: [], audit: null };
+  if (/\.(test|spec)\.|__tests__/.test(chunk.filename)) return { findings: [], audit: null };
+  if (!process.env.GROQ_API_KEY) return { findings: [], audit: null };
 
   try {
-    const res = await axios.post(
-      GROQ_API,
-      {
-        model:      'llama-3.3-70b-versatile',
-        max_tokens: 1024,
-        messages: [
-          { role: 'system', content: SYSTEM },
-          { role: 'user',   content: buildPrompt(chunk) }
-        ]
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-          'Content-Type':  'application/json'
-        },
-        timeout: 15000
-      }
-    );
+    const prompt = buildPrompt(chunk);
+    const result = await routeReview(prompt, SYSTEM, {
+      filename: chunk.filename,
+      functionName: chunk.functionName,
+      projectId: metadata.projectId,
+      prId: metadata.prId,
+      stepNumber: metadata.stepNumber || 0,
+      totalSteps: metadata.totalSteps || 0,
+      complexity: metadata.complexity || 0.5,
+    });
 
     let findings = [];
     try {
-      const text  = res.data.choices[0].message.content.trim();
+      const text = result.content.trim();
       const clean = text.replace(/```json|```/g, '').trim();
-      findings = JSON.parse(clean);
-      if (!Array.isArray(findings)) findings = [];
-    } catch { return []; }
+      const parsed = JSON.parse(clean);
+      if (Array.isArray(parsed)) {
+        findings = parsed;
+      }
+    } catch { /* invalid JSON — return empty */ }
 
-    return findings
+    const validated = findings
       .filter(f => f && f.message && f.severity)
       .map(f => ({
         type:         'logic',
@@ -85,24 +79,43 @@ async function reviewChunk(chunk) {
         confidence:   Math.min(100, Math.max(0, Number(f.confidence) || 70)),
         filename:     chunk.filename,
         functionName: chunk.functionName,
-        source:       'llm'
+        source:       'llm',
+        modelUsed:    result.audit?.modelUsed || 'unknown',
+        modelCost:    result.audit?.modelCost || 0,
       }));
+
+    return { findings: validated, audit: result.audit };
 
   } catch (err) {
     if (process.env.NODE_ENV !== 'production')
       console.error(`[logicReviewer] ${chunk.filename}:${chunk.startLine}`, err.message);
-    return [];
+    return { findings: [], audit: null, error: err.message };
   }
 }
 
-async function reviewAllChunks(chunks, onFinding) {
+async function reviewAllChunks(chunks, onFinding, metadata = {}) {
   const all = [];
+  const totalSteps = chunks.length;
+
   for (let i = 0; i < chunks.length; i += 3) {
-    const results = await Promise.all(chunks.slice(i, i + 3).map(reviewChunk));
-    for (const chunkFindings of results) {
-      for (const f of chunkFindings) {
+    const batch = chunks.slice(i, i + 3);
+    const results = await Promise.all(
+      batch.map((chunk, idx) =>
+        reviewChunk(chunk, {
+          ...metadata,
+          stepNumber: i + idx + 1,
+          totalSteps,
+        })
+      )
+    );
+
+    for (const { findings, audit } of results) {
+      for (const f of findings) {
         all.push(f);
         onFinding({ type: 'logic_finding', data: f });
+      }
+      if (audit) {
+        onFinding({ type: 'cascade_decision', data: audit });
       }
     }
   }

@@ -147,3 +147,36 @@ DO $$ BEGIN
   ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS analysis_total  INTEGER DEFAULT 0;
 EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
+
+-- CascadeFlow audit trail for LLM routing decisions
+CREATE TABLE IF NOT EXISTS public.audit_trail (
+  id                SERIAL PRIMARY KEY,
+  project_id        UUID REFERENCES public.projects(id) ON DELETE CASCADE,
+  pr_id             INTEGER REFERENCES public.pull_requests(id) ON DELETE CASCADE,
+  chunk_filename    TEXT,
+  chunk_function    TEXT,
+  model_used        TEXT NOT NULL,
+  model_cost        REAL DEFAULT 0.0,
+  latency_ms        INTEGER DEFAULT 0,
+  quality_score     REAL DEFAULT 0.0,
+  escalated         BOOLEAN DEFAULT FALSE,
+  escalation_reason TEXT,
+  tokens_used       INTEGER DEFAULT 0,
+  step_number       INTEGER DEFAULT 0,
+  total_steps       INTEGER DEFAULT 0,
+  created_at        TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_project ON public.audit_trail(project_id);
+CREATE INDEX IF NOT EXISTS idx_audit_pr ON public.audit_trail(pr_id);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON public.audit_trail(created_at);
+
+ALTER TABLE public.audit_trail ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'audit_trail' AND policyname = 'project audit') THEN
+    CREATE POLICY "project audit" ON public.audit_trail
+      FOR ALL USING (project_id IN (SELECT id FROM public.projects WHERE owner_id = auth.uid()));
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;

@@ -95,4 +95,30 @@ router.patch('/findings/:id/fp', requireAuth, async (req, res) => {
   }
 });
 
+// ─── CascadeFlow Cost Analytics ──────────────────────────────────────────────
+
+const { auditTrail } = require('../cascade');
+
+router.get('/:projectId/costs', requireAuth, async (req, res) => {
+  try {
+    if (!await getProject(req, res)) return;
+    const summary = await auditTrail.getCostSummary(req.params.projectId);
+    const distribution = await auditTrail.getModelDistribution(req.params.projectId);
+    res.json({ ...summary, modelDistribution: distribution });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:projectId/costs/decisions', requireAuth, async (req, res) => {
+  try {
+    if (!await getProject(req, res)) return;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const decisions = await auditTrail.getRecentDecisions(req.params.projectId, limit);
+    res.json(decisions);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
