@@ -949,15 +949,16 @@ describe('getOrCreateProfile', () => {
   it('should create and return new profile when not found', async () => {
     const mockProfile = { id: 2, project_id: 1, github_login: 'dev1' };
     pool.query
-      .mockResolvedValueOnce({ rows: [] }) // SELECT
+      .mockResolvedValueOnce({ rows: [] }) // SELECT profile
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] }) // SELECT project exists
       .mockResolvedValueOnce({ rows: [mockProfile] }); // INSERT
 
     const result = await queries.getOrCreateProfile(1, 'dev1');
 
     expect(result).toEqual({ profile: mockProfile, isNew: true });
-    expect(pool.query).toHaveBeenCalledTimes(2);
+    expect(pool.query).toHaveBeenCalledTimes(3);
 
-    const [insertSql, insertParams] = pool.query.mock.calls[1];
+    const [insertSql, insertParams] = pool.query.mock.calls[2];
     expect(insertSql).toContain('INSERT INTO public.developer_profiles');
     expect(insertSql).toContain('RETURNING *');
     expect(insertParams).toEqual([1, 'dev1']);

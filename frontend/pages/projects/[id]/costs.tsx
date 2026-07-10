@@ -18,23 +18,34 @@ import {
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 type CostSummary = {
-  totalRequests: number;
+  totalCalls: number;
+  freeCalls: number;
+  paidCalls: number;
   totalCost: number;
-  avgQualityScore: number;
+  estimatedWithoutCascade: number;
+  savingsPercent: number;
+  avgLatencyMs: number;
+  avgQuality: number;
   escalationRate: number;
-  modelDistribution: Record<string, number>;
-  taskTypeDistribution: Record<string, number>;
-  avgTokensPerRequest: number;
+};
+
+type ModelDist = {
+  model_used: string;
+  count: number;
+  total_cost: number;
+  avg_quality: number;
+  avg_latency: number;
 };
 
 type Decision = {
   id: number;
-  task_type: string;
+  chunk_filename: string;
+  chunk_function: string;
   model_used: string;
-  model_tier: string;
+  model_cost: number;
+  latency_ms: number;
   quality_score: number;
-  tokens_used: number;
-  cost: number;
+  escalated: boolean;
   created_at: string;
 };
 
@@ -44,6 +55,7 @@ export default function CostDashboardPage() {
   const { session, loading, apiHeaders } = useAuth();
 
   const [summary, setSummary] = useState<CostSummary | null>(null);
+  const [modelDist, setModelDist] = useState<ModelDist[]>([]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -65,11 +77,12 @@ export default function CostDashboardPage() {
         if (summaryRes.ok) {
           const data = await summaryRes.json();
           setSummary(data);
+          setModelDist(data.modelDistribution || []);
         }
 
         if (decisionsRes.ok) {
           const data = await decisionsRes.json();
-          setDecisions(data.decisions || []);
+          setDecisions(Array.isArray(data) ? data : data.decisions || []);
         }
       } catch (e: any) {
         setError(e.message || 'Failed to load cost data');
@@ -90,6 +103,12 @@ export default function CostDashboardPage() {
       </div>
     );
   }
+
+  const totalCalls = summary?.totalCalls || 0;
+  const totalCost = summary?.totalCost || 0;
+  const avgQuality = summary?.avgQuality || 0;
+  const escalationRate = summary?.escalationRate || 0;
+  const savingsPercent = summary?.savingsPercent || 0;
 
   return (
     <div className="p-6 md:p-8 max-w-[1200px] mx-auto">
@@ -135,8 +154,8 @@ export default function CostDashboardPage() {
               </div>
               <span className="text-xs text-text-dim font-medium">Total Cost</span>
             </div>
-            <p className="text-2xl font-bold text-text-bright">${summary.totalCost.toFixed(4)}</p>
-            <p className="text-xs text-text-dim mt-1">{summary.totalRequests} requests</p>
+            <p className="text-2xl font-bold text-text-bright">${totalCost.toFixed(4)}</p>
+            <p className="text-xs text-text-dim mt-1">{totalCalls} requests</p>
           </motion.div>
 
           <motion.div
@@ -151,7 +170,7 @@ export default function CostDashboardPage() {
               </div>
               <span className="text-xs text-text-dim font-medium">Avg Quality</span>
             </div>
-            <p className="text-2xl font-bold text-text-bright">{(summary.avgQualityScore * 100).toFixed(1)}%</p>
+            <p className="text-2xl font-bold text-text-bright">{avgQuality.toFixed(2)}</p>
             <p className="text-xs text-text-dim mt-1">CascadeFlow quality gate</p>
           </motion.div>
 
@@ -167,8 +186,8 @@ export default function CostDashboardPage() {
               </div>
               <span className="text-xs text-text-dim font-medium">Escalation Rate</span>
             </div>
-            <p className="text-2xl font-bold text-text-bright">{(summary.escalationRate * 100).toFixed(1)}%</p>
-            <p className="text-xs text-text-dim mt-1">Free → Paid model</p>
+            <p className="text-2xl font-bold text-text-bright">{escalationRate}%</p>
+            <p className="text-xs text-text-dim mt-1">Free &rarr; Paid model</p>
           </motion.div>
 
           <motion.div
@@ -181,16 +200,16 @@ export default function CostDashboardPage() {
               <div className="w-10 h-10 rounded-xl bg-info/10 flex items-center justify-center">
                 <Zap className="w-5 h-5 text-info" />
               </div>
-              <span className="text-xs text-text-dim font-medium">Avg Tokens</span>
+              <span className="text-xs text-text-dim font-medium">Cost Savings</span>
             </div>
-            <p className="text-2xl font-bold text-text-bright">{summary.avgTokensPerRequest.toLocaleString()}</p>
-            <p className="text-xs text-text-dim mt-1">Per request</p>
+            <p className="text-2xl font-bold text-text-bright">{savingsPercent}%</p>
+            <p className="text-xs text-text-dim mt-1">vs. paid-only</p>
           </motion.div>
         </div>
       )}
 
       {/* Model Distribution */}
-      {summary && Object.keys(summary.modelDistribution).length > 0 && (
+      {modelDist.length > 0 && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -202,27 +221,24 @@ export default function CostDashboardPage() {
             Model Distribution
           </h2>
           <div className="space-y-3">
-            {Object.entries(summary.modelDistribution)
-              .sort((a, b) => b[1] - a[1])
-              .map(([model, count]) => {
-                const total = Object.values(summary.modelDistribution).reduce((a, b) => a + b, 0);
-                const pct = (count / total) * 100;
-                const isFree = model.includes('qwen') || model.includes('llama');
-                return (
-                  <div key={model} className="flex items-center gap-3">
-                    <div className="w-32 truncate text-sm font-mono text-text-bright">{model}</div>
-                    <div className="flex-1 h-2 rounded-full bg-surface-3 overflow-hidden">
-                      <motion.div
-                        className={`h-full rounded-full ${isFree ? 'bg-safe' : 'bg-accent'}`}
-                        initial={{ width: 0 }}
-                        animate={{ width: `${pct}%` }}
-                        transition={{ duration: 0.5, ease: 'easeOut' }}
-                      />
-                    </div>
-                    <div className="w-20 text-right text-sm text-text-dim">{count} ({pct.toFixed(0)}%)</div>
+            {modelDist.map((m) => {
+              const pct = totalCalls > 0 ? (m.count / totalCalls) * 100 : 0;
+              const isFree = m.total_cost === 0;
+              return (
+                <div key={m.model_used} className="flex items-center gap-3">
+                  <div className="w-48 truncate text-sm font-mono text-text-bright">{m.model_used}</div>
+                  <div className="flex-1 h-2 rounded-full bg-surface-3 overflow-hidden">
+                    <motion.div
+                      className={`h-full rounded-full ${isFree ? 'bg-safe' : 'bg-accent'}`}
+                      initial={{ width: 0 }}
+                      animate={{ width: `${pct}%` }}
+                      transition={{ duration: 0.5, ease: 'easeOut' }}
+                    />
                   </div>
-                );
-              })}
+                  <div className="w-24 text-right text-sm text-text-dim">{m.count} ({pct.toFixed(0)}%)</div>
+                </div>
+              );
+            })}
           </div>
         </motion.div>
       )}
@@ -246,12 +262,12 @@ export default function CostDashboardPage() {
               <thead>
                 <tr className="border-b border-border-faint text-text-dim text-left">
                   <th className="px-6 py-3 font-medium">Time</th>
-                  <th className="px-6 py-3 font-medium">Task</th>
+                  <th className="px-6 py-3 font-medium">File</th>
                   <th className="px-6 py-3 font-medium">Model</th>
-                  <th className="px-6 py-3 font-medium">Tier</th>
                   <th className="px-6 py-3 font-medium">Quality</th>
-                  <th className="px-6 py-3 font-medium">Tokens</th>
+                  <th className="px-6 py-3 font-medium">Latency</th>
                   <th className="px-6 py-3 font-medium">Cost</th>
+                  <th className="px-6 py-3 font-medium">Escalated</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border-faint">
@@ -263,24 +279,28 @@ export default function CostDashboardPage() {
                         {new Date(d.created_at).toLocaleString()}
                       </div>
                     </td>
-                    <td className="px-6 py-3">
-                      <span className="badge badge-info">{d.task_type}</span>
+                    <td className="px-6 py-3 font-mono text-text-bright truncate max-w-[200px]">
+                      {d.chunk_filename || '-'}
                     </td>
-                    <td className="px-6 py-3 font-mono text-text-bright truncate max-w-[200px]">{d.model_used}</td>
-                    <td className="px-6 py-3">
-                      <span className={`badge ${d.model_tier === 'free' ? 'badge-safe' : 'badge-accent'}`}>
-                        {d.model_tier}
-                      </span>
+                    <td className="px-6 py-3 font-mono text-text-bright truncate max-w-[200px]">
+                      {d.model_used}
                     </td>
                     <td className="px-6 py-3">
                       <span className={`font-semibold ${
                         d.quality_score >= 0.7 ? 'text-safe' : d.quality_score >= 0.4 ? 'text-high' : 'text-critical'
                       }`}>
-                        {(d.quality_score * 100).toFixed(0)}%
+                        {d.quality_score.toFixed(2)}
                       </span>
                     </td>
-                    <td className="px-6 py-3 text-text-dim tabular-nums">{d.tokens_used.toLocaleString()}</td>
-                    <td className="px-6 py-3 text-text-dim tabular-nums">${d.cost.toFixed(4)}</td>
+                    <td className="px-6 py-3 text-text-dim tabular-nums">{d.latency_ms}ms</td>
+                    <td className="px-6 py-3 text-text-dim tabular-nums">${d.model_cost.toFixed(4)}</td>
+                    <td className="px-6 py-3">
+                      {d.escalated ? (
+                        <span className="badge badge-accent">Yes</span>
+                      ) : (
+                        <span className="badge badge-info">No</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -296,7 +316,7 @@ export default function CostDashboardPage() {
           <h3 className="text-lg font-bold text-text-bright mb-2">No Cost Data Yet</h3>
           <p className="text-sm text-text-dim max-w-md mx-auto">
             Run some PR analyses to see CascadeFlow cost analytics. The model cascade will automatically route requests
-            through free models first, only escalating when quality thresholds aren't met.
+            through free models first, only escalating when quality thresholds aren&apos;t met.
           </p>
         </div>
       )}

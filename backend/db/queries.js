@@ -328,6 +328,12 @@ const queries = {
     );
     if (res.rows.length > 0) return { profile: res.rows[0], isNew: false };
 
+    // Check if project exists before inserting (avoids FK violation if project was deleted)
+    const projCheck = await pool.query('SELECT id FROM public.projects WHERE id=$1', [project_id]);
+    if (projCheck.rows.length === 0) {
+      throw new Error(`Project ${project_id} no longer exists`);
+    }
+
     res = await pool.query(
       `INSERT INTO public.developer_profiles (project_id, github_login) VALUES ($1,$2) RETURNING *`,
       [project_id, github_login]

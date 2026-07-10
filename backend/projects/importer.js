@@ -1,4 +1,5 @@
 const queries = require('../db/queries');
+const pool = require('../db/db');
 const { fetchMergedPRs, fetchPRFiles } = require('../github/fetcher');
 const { analyzePR } = require('../analysis/pipeline');
 
@@ -16,6 +17,13 @@ async function startHistoricalImport(projectId, githubRepo, githubToken, limit =
 
     for (const pr of mergedPRs) {
       try {
+        // Check if project still exists (may have been deleted while import runs in background)
+        const projCheck = await pool.query('SELECT id FROM public.projects WHERE id=$1', [projectId]);
+        if (projCheck.rows.length === 0) {
+          console.log(`[import] Project ${projectId} was deleted, stopping import`);
+          return;
+        }
+
         const files = await fetchPRFiles(owner, repo, pr.number, githubToken);
         await queries.insertPR({
           project_id: projectId,
@@ -64,6 +72,13 @@ async function startHistoricalAnalysis(projectId, githubToken) {
 
     for (const pr of unanalyzedPRs) {
       try {
+        // Check if project still exists (may have been deleted while analysis runs in background)
+        const projCheck = await pool.query('SELECT id FROM public.projects WHERE id=$1', [projectId]);
+        if (projCheck.rows.length === 0) {
+          console.log(`[historical-analysis] Project ${projectId} was deleted, stopping analysis`);
+          return;
+        }
+
         console.log(`[historical-analysis] Analyzing PR #${pr.pr_number} (${pr.author})...`);
 
         await analyzePR(pr.pr_url, null, projectId, githubToken, () => {}, pr.id);

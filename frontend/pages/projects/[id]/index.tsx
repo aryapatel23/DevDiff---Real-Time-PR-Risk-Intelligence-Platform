@@ -348,9 +348,21 @@ export default function ProjectDetailPage() {
   const isImporting = project?.import_status === 'running' || project?.import_status === 'pending';
   const isAnalyzingHistory = project?.analysis_status === 'running';
   const showProgress = isImporting || isAnalyzingHistory;
+  const isBusy = showProgress || isAnalyzing;
 
   return (
     <div className="p-6 md:p-8 max-w-[1200px] mx-auto">
+      {/* Loading skeleton while project data loads */}
+      {!project && !error && (
+        <div className="space-y-6">
+          <div className="h-8 w-48 bg-surface-2 rounded-lg animate-pulse" />
+          <div className="glow-card p-6">
+            <div className="h-6 w-64 bg-surface-2 rounded animate-pulse mb-4" />
+            <div className="h-4 w-full bg-surface-2 rounded animate-pulse" />
+          </div>
+        </div>
+      )}
+
       {/* Import/Analysis Progress Popup */}
       <AnimatePresence>
         {showProgress && (
@@ -401,6 +413,21 @@ export default function ProjectDetailPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Analysis Complete Banner */}
+      {!showProgress && project?.analysis_status === 'done' && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 bg-safe/10 border border-safe/20 rounded-xl px-5 py-3 flex items-center gap-3"
+        >
+          <CheckCircle2 className="w-5 h-5 text-safe shrink-0" />
+          <span className="text-sm text-safe font-medium">
+            Historical analysis complete — {project.analysis_count || 0} PRs analyzed. You can now check individual PRs or view the scorecard.
+          </span>
+        </motion.div>
+      )}
+
       {/* Header */}
       <header className="mb-8">
         <Link href="/dashboard" className="inline-flex items-center gap-2 text-text-dim hover:text-accent transition text-sm font-medium mb-4">
@@ -438,7 +465,7 @@ export default function ProjectDetailPage() {
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        className="glow-card p-6 mb-6"
+        className={`glow-card p-6 mb-6 ${isBusy ? 'opacity-60' : ''}`}
       >
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-base font-bold text-text-bright flex items-center gap-2">
@@ -446,7 +473,12 @@ export default function ProjectDetailPage() {
             Analyze Pull Request
           </h2>
           <div className="flex items-center gap-2">
-            {isAnalyzing ? (
+            {isBusy ? (
+              <span className="badge badge-accent">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                {isImporting ? 'Importing...' : isAnalyzingHistory ? 'Analyzing...' : phaseText}
+              </span>
+            ) : isAnalyzing ? (
               <span className="badge badge-accent">
                 <Loader2 className="w-3 h-3 animate-spin" />
                 {phaseText}
@@ -460,33 +492,48 @@ export default function ProjectDetailPage() {
           </div>
         </div>
 
-        <p className="text-xs text-text-dim mb-4">
-          PRs must belong to <span className="text-text-normal font-mono">{project?.github_repo}</span>
-        </p>
+        {isBusy ? (
+          <div className="bg-surface-2/50 border border-border-faint rounded-xl px-5 py-4 text-sm text-text-dim">
+            {isImporting && (
+              <p>Importing merged PRs from GitHub. You can analyze individual PRs once the import is complete.</p>
+            )}
+            {isAnalyzingHistory && !isImporting && (
+              <p>Historical analysis is running in the background. You can analyze individual PRs once it&apos;s complete.</p>
+            )}
+          </div>
+        ) : (
+          <>
+            <p className="text-xs text-text-dim mb-4">
+              PRs must belong to <span className="text-text-normal font-mono">{project?.github_repo}</span>
+            </p>
 
-        <div className="flex gap-3 mb-3">
-          <input
-            value={prUrl}
-            onChange={e => setPrUrl(e.target.value)}
-            placeholder="https://github.com/owner/repo/pull/123"
-            className="input-field flex-1 font-mono text-sm"
-          />
-          <button
-            onClick={analyze}
-            disabled={isAnalyzing || !prUrl.trim()}
-            className="btn-primary flex items-center gap-2 text-sm shrink-0"
-          >
-            {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-            {isAnalyzing ? 'Analyzing...' : 'Analyze'}
-          </button>
-        </div>
+            <div className="flex gap-3 mb-3">
+              <input
+                value={prUrl}
+                onChange={e => setPrUrl(e.target.value)}
+                placeholder="https://github.com/owner/repo/pull/123"
+                className="input-field flex-1 font-mono text-sm"
+                disabled={isBusy}
+              />
+              <button
+                onClick={analyze}
+                disabled={isAnalyzing || isBusy || !prUrl.trim()}
+                className="btn-primary flex items-center gap-2 text-sm shrink-0"
+              >
+                {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                {isAnalyzing ? 'Analyzing...' : 'Analyze'}
+              </button>
+            </div>
 
-        <input
-          value={ticketUrl}
-          onChange={e => setTicketUrl(e.target.value)}
-          placeholder="Optional: Ticket or issue URL for intent validation"
-          className="input-field text-sm mb-5"
-        />
+            <input
+              value={ticketUrl}
+              onChange={e => setTicketUrl(e.target.value)}
+              placeholder="Optional: Ticket or issue URL for intent validation"
+              className="input-field text-sm mb-5"
+              disabled={isBusy}
+            />
+          </>
+        )}
 
         {/* Risk Score Ring */}
         {(isAnalyzing || riskScore > 0) && (
