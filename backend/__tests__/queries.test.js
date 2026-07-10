@@ -812,7 +812,7 @@ describe('getScorecard', () => {
     expect(sql).toContain('WHERE f.project_id=$1');
     expect(sql).toContain("INTERVAL '30 days'");
     expect(sql).toContain('pr.is_historical=false');
-    expect(sql).toContain('GROUP BY f.author ORDER BY score DESC');
+    expect(sql).toContain('ORDER BY score DESC');
     expect(params).toEqual([1]);
   });
 

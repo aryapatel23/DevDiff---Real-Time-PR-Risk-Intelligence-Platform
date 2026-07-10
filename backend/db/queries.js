@@ -271,16 +271,21 @@ const queries = {
 
   async getScorecard(project_id) {
     const res = await pool.query(
-      `SELECT f.author,
-         COUNT(*) FILTER (WHERE f.severity='critical' AND f.false_positive=0) AS critical_count,
-         COUNT(*) FILTER (WHERE f.severity='warning'  AND f.false_positive=0) AS warning_count,
+      `WITH dev_stats AS (
+         SELECT f.author,
+           COUNT(DISTINCT pr.id) AS pr_count,
+           COUNT(*) FILTER (WHERE f.severity='critical' AND f.false_positive=0) AS critical_count,
+           COUNT(*) FILTER (WHERE f.severity='warning'  AND f.false_positive=0) AS warning_count
+         FROM public.findings f
+         JOIN public.pull_requests pr ON pr.id=f.pr_id
+         WHERE f.project_id=$1 AND f.created_at > NOW() - INTERVAL '30 days' AND pr.is_historical=false
+         GROUP BY f.author
+       )
+       SELECT author, pr_count, critical_count, warning_count,
          GREATEST(100
-           - COUNT(*) FILTER (WHERE f.severity='critical' AND f.false_positive=0) * 4
-           - COUNT(*) FILTER (WHERE f.severity='warning'  AND f.false_positive=0) * 1, 0) AS score
-      FROM public.findings f
-      JOIN public.pull_requests pr ON pr.id=f.pr_id
-      WHERE f.project_id=$1 AND f.created_at > NOW() - INTERVAL '30 days' AND pr.is_historical=false
-       GROUP BY f.author ORDER BY score DESC`,
+           - ROUND(critical_count * 4.0 / GREATEST(pr_count, 1))
+           - ROUND(warning_count * 1.0 / GREATEST(pr_count, 1)), 0) AS score
+       FROM dev_stats ORDER BY score DESC`,
       [project_id]
     );
     return res.rows;
