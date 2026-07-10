@@ -219,7 +219,7 @@ export default function ProjectHistoryPage() {
 
       <div className="space-y-3">
         <AnimatePresence>
-          {rows.map((r, idx) => {
+          {!initialLoading && rows.map((r, idx) => {
             const isScanned = r.source_type !== 'imported';
             const score = Number(r.display_score ?? r.risk_score ?? 0);
             return (

@@ -123,7 +123,7 @@ async function analyzePR(prUrl, ticketUrl, projectId, githubToken, onFinding, ex
 
         const weight = Number(ruleWeights[hit.rule_name] ?? 1);
         const confidence = Math.min(100, (mlResult.score || 0) * weight);
-        let severity = confidence >= 85 ? hit.severity : mlResult.severity;
+        let severity = hit.isDeterministic || confidence >= 85 ? hit.severity : mlResult.severity;
         let falsePositiveLevel = 0;
 
         if (suppressionLevel >= 2) {

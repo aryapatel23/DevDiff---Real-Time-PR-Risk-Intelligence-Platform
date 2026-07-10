@@ -351,18 +351,46 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="p-6 md:p-8 max-w-[1200px] mx-auto">
-      {/* Loading skeleton while project data loads */}
+      {/* Full-page loading skeleton while project data loads */}
       {!project && !error && (
         <div className="space-y-6">
           <div className="h-8 w-48 bg-surface-2 rounded-lg animate-pulse" />
           <div className="glow-card p-6">
             <div className="h-6 w-64 bg-surface-2 rounded animate-pulse mb-4" />
-            <div className="h-4 w-full bg-surface-2 rounded animate-pulse" />
+            <div className="h-4 w-full bg-surface-2 rounded animate-pulse mb-3" />
+            <div className="h-4 w-3/4 bg-surface-2 rounded animate-pulse" />
+          </div>
+          <div className="glow-card p-6">
+            <div className="h-5 w-48 bg-surface-2 rounded animate-pulse mb-4" />
+            <div className="h-10 w-full bg-surface-2 rounded animate-pulse mb-3" />
+            <div className="h-10 w-full bg-surface-2 rounded animate-pulse" />
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            {[1,2,3].map(i => (
+              <div key={i} className="glow-card p-5">
+                <div className="h-12 w-12 bg-surface-2 rounded-xl animate-pulse mx-auto mb-3" />
+                <div className="h-4 w-20 bg-surface-2 rounded animate-pulse mx-auto mb-2" />
+                <div className="h-3 w-16 bg-surface-2 rounded animate-pulse mx-auto" />
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Import/Analysis Progress Popup */}
+      {/* Error state */}
+      {error && !project && (
+        <div className="glow-card p-8 text-center">
+          <AlertCircle className="w-12 h-12 text-critical mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-text-bright mb-2">Failed to load project</h2>
+          <p className="text-text-dim text-sm mb-4">{error}</p>
+          <Link href="/dashboard" className="btn-primary">Back to Dashboard</Link>
+        </div>
+      )}
+
+      {/* Project content - only show when project is loaded */}
+      {project && (
+        <>
+          {/* Import/Analysis Progress Popup */}
       <AnimatePresence>
         {showProgress && (
           <motion.div
@@ -807,6 +835,8 @@ export default function ProjectDetailPage() {
           <span className="text-xs text-text-dim">Bug density</span>
         </Link>
       </motion.div>
+        </>
+      )}
     </div>
   );
 }

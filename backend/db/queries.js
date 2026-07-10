@@ -31,6 +31,14 @@ const queries = {
     return res.rows[0] || null;
   },
 
+  async projectExists(id) {
+    const res = await pool.query(
+      `SELECT id FROM public.projects WHERE id=$1`,
+      [id]
+    );
+    return Boolean(res.rows[0]);
+  },
+
   async deleteProject(id, owner_id) {
     const res = await pool.query(
       `DELETE FROM public.projects WHERE id=$1 AND owner_id=$2 RETURNING id`,

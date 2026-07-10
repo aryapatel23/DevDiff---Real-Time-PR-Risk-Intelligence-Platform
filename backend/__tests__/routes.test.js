@@ -4,6 +4,7 @@ jest.mock('../db/queries', () => ({
   getProjectsByOwner: jest.fn(),
   createProject: jest.fn(),
   getProjectById: jest.fn(),
+  projectExists: jest.fn(),
   deleteProject: jest.fn(),
   getHistory: jest.fn(),
   getScorecard: jest.fn(),
@@ -679,7 +680,7 @@ describe('Developer Routes', () => {
     const handler = getHandler(developerRouter, '/:projectId/:author', 'get');
 
     it('returns developer profile', async () => {
-      queries.getProjectById.mockResolvedValue({ id: 'p1' });
+      queries.projectExists.mockResolvedValue(true);
       queries.getDeveloperProfile.mockResolvedValue({
         profile: { github_login: 'alice' },
         recent_prs: [],
@@ -699,7 +700,7 @@ describe('Developer Routes', () => {
     });
 
     it('returns 404 when project not found', async () => {
-      queries.getProjectById.mockResolvedValue(null);
+      queries.projectExists.mockResolvedValue(false);
       const { res } = await callHandler(handler, {
         params: { projectId: 'missing', author: 'alice' },
       });
@@ -709,7 +710,7 @@ describe('Developer Routes', () => {
     });
 
     it('returns 404 when developer not found', async () => {
-      queries.getProjectById.mockResolvedValue({ id: 'p1' });
+      queries.projectExists.mockResolvedValue(true);
       queries.getDeveloperProfile.mockResolvedValue(null);
 
       const { res } = await callHandler(handler, {
@@ -721,7 +722,7 @@ describe('Developer Routes', () => {
     });
 
     it('propagates database error (no try/catch in route)', async () => {
-      queries.getProjectById.mockRejectedValue(new Error('db err'));
+      queries.projectExists.mockRejectedValue(new Error('db err'));
       await expect(
         callHandler(handler, { params: { projectId: 'p1', author: 'alice' } })
       ).rejects.toThrow('db err');
