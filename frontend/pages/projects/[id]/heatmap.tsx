@@ -14,6 +14,7 @@ export default function ProjectHeatmapPage() {
   const { session, loading, apiHeaders } = useAuth();
   const [rows, setRows] = useState<any[]>([]);
   const [error, setError] = useState('');
+  const [initialLoading, setInitialLoading] = useState(true);
 
   const chartRows = rows.map((row) => {
     const critical = Number(row.critical || 0);
@@ -43,6 +44,8 @@ export default function ProjectHeatmapPage() {
         if (!cancelled) setRows(Array.isArray(payload) ? payload : []);
       } catch (e: any) {
         if (!cancelled) { setRows([]); setError(e?.message || 'Failed to fetch heatmap.'); }
+      } finally {
+        if (!cancelled) setInitialLoading(false);
       }
     })();
     return () => { cancelled = true; };
@@ -75,6 +78,28 @@ export default function ProjectHeatmapPage() {
         )}
       </AnimatePresence>
 
+      {/* Loading skeleton */}
+      {initialLoading && !error && (
+        <div className="space-y-6">
+          <div className="glow-card p-5">
+            <div className="h-3 w-32 bg-surface-2 rounded animate-pulse mb-4" />
+            <div className="h-44 bg-surface-2/50 rounded-xl animate-pulse" />
+          </div>
+          <div className="space-y-2">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="glow-card p-4 flex items-center justify-between">
+                <div className="h-3 w-48 bg-surface-2 rounded animate-pulse" />
+                <div className="flex gap-2">
+                  <div className="h-5 w-16 bg-surface-2 rounded animate-pulse" />
+                  <div className="h-5 w-12 bg-surface-2 rounded animate-pulse" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!initialLoading && (<>
       <div className="glow-card p-5 mb-6">
         <p className="text-xs text-text-dim mb-4 uppercase tracking-wider font-semibold">Findings per file</p>
         {chartRows.length === 0 ? (
@@ -133,6 +158,7 @@ export default function ProjectHeatmapPage() {
           </div>
         ))}
       </div>
+      </>)}
     </div>
   );
 }

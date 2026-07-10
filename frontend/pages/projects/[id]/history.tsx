@@ -39,6 +39,7 @@ export default function ProjectHistoryPage() {
   const [loadingPR, setLoadingPR] = useState<number | null>(null);
   const [updatingFindingId, setUpdatingFindingId] = useState<number | null>(null);
   const [feedbackStats, setFeedbackStats] = useState<FeedbackStats | null>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
 
   useEffect(() => {
     if (!loading && !session) router.replace('/login');
@@ -65,6 +66,8 @@ export default function ProjectHistoryPage() {
           setRows([]);
           setError(e?.message || 'Failed to fetch history.');
         }
+      } finally {
+        if (!cancelled) setInitialLoading(false);
       }
     })();
 
@@ -163,7 +166,25 @@ export default function ProjectHistoryPage() {
         )}
       </AnimatePresence>
 
-      {feedbackStats && (
+      {/* Loading skeleton */}
+      {initialLoading && !error && (
+        <div className="space-y-3">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="glow-card p-5">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-surface-2 animate-pulse" />
+                <div className="flex-1">
+                  <div className="h-4 w-48 bg-surface-2 rounded animate-pulse mb-2" />
+                  <div className="h-3 w-32 bg-surface-2 rounded animate-pulse" />
+                </div>
+                <div className="h-6 w-16 bg-surface-2 rounded animate-pulse" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {feedbackStats && !initialLoading && (
         <div className="mb-6 glow-card p-5">
           <p className="text-sm text-text-bright font-semibold mb-3">False Positive Learning</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -183,7 +204,7 @@ export default function ProjectHistoryPage() {
         </div>
       )}
 
-      {rows.length === 0 && !error && (
+      {rows.length === 0 && !error && !initialLoading && (
         <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }}
           className="flex flex-col items-center justify-center p-16 glow-card text-center"
         >

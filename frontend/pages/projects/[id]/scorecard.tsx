@@ -13,6 +13,7 @@ export default function ProjectScorecardPage() {
   const { session, loading, apiHeaders } = useAuth();
   const [rows, setRows] = useState<any[]>([]);
   const [error, setError] = useState('');
+  const [initialLoading, setInitialLoading] = useState(true);
 
   useEffect(() => {
     if (!loading && !session) router.replace('/login');
@@ -30,6 +31,8 @@ export default function ProjectScorecardPage() {
         if (!cancelled) setRows(Array.isArray(payload) ? payload : []);
       } catch (e: any) {
         if (!cancelled) { setRows([]); setError(e?.message || 'Failed to fetch scorecard.'); }
+      } finally {
+        if (!cancelled) setInitialLoading(false);
       }
     })();
     return () => { cancelled = true; };
@@ -80,7 +83,26 @@ export default function ProjectScorecardPage() {
         )}
       </AnimatePresence>
 
-      {rows.length === 0 && !error && (
+      {/* Loading skeleton */}
+      {initialLoading && !error && (
+        <div className="space-y-3">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="glow-card p-5">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-11 h-11 rounded-full bg-surface-2 animate-pulse" />
+                <div className="flex-1">
+                  <div className="h-4 w-32 bg-surface-2 rounded animate-pulse mb-2" />
+                  <div className="h-3 w-20 bg-surface-2 rounded animate-pulse" />
+                </div>
+                <div className="h-6 w-16 bg-surface-2 rounded animate-pulse" />
+              </div>
+              <div className="h-2 w-full bg-surface-2 rounded-full animate-pulse" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {rows.length === 0 && !error && !initialLoading && (
         <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }}
           className="flex flex-col items-center justify-center p-16 glow-card text-center"
         >
