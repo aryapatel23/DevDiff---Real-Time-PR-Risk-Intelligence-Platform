@@ -798,8 +798,8 @@ describe('getFeedbackStats', () => {
 describe('getScorecard', () => {
   it('should return scorecard with calculated scores', async () => {
     const mockRows = [
-      { author: 'dev1', critical_count: '2', warning_count: '5', score: '74' },
-      { author: 'dev2', critical_count: '0', warning_count: '1', score: '98' },
+      { author: 'dev1', pr_count: 5, avg_risk: 42, score: 74 },
+      { author: 'dev2', pr_count: 3, avg_risk: 5, score: 98 },
     ];
     pool.query.mockResolvedValueOnce({ rows: mockRows });
 
@@ -808,10 +808,9 @@ describe('getScorecard', () => {
     expect(result).toEqual(mockRows);
     expect(result).toHaveLength(2);
     const [sql, params] = pool.query.mock.calls[0];
-    expect(sql).toContain('SELECT f.author');
-    expect(sql).toContain('WHERE f.project_id=$1');
+    expect(sql).toContain('pr.author');
+    expect(sql).toContain('pr.project_id=$1');
     expect(sql).toContain("INTERVAL '30 days'");
-    expect(sql).toContain('pr.is_historical=false');
     expect(sql).toContain('ORDER BY score DESC');
     expect(params).toEqual([1]);
   });

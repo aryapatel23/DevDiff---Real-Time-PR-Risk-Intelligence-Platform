@@ -271,21 +271,25 @@ const queries = {
 
   async getScorecard(project_id) {
     const res = await pool.query(
-      `WITH dev_stats AS (
-         SELECT f.author,
-           COUNT(DISTINCT pr.id) AS pr_count,
-           COUNT(*) FILTER (WHERE f.severity='critical' AND f.false_positive=0) AS critical_count,
-           COUNT(*) FILTER (WHERE f.severity='warning'  AND f.false_positive=0) AS warning_count
-         FROM public.findings f
-         JOIN public.pull_requests pr ON pr.id=f.pr_id
-         WHERE f.project_id=$1 AND f.created_at > NOW() - INTERVAL '30 days' AND pr.is_historical=false
-         GROUP BY f.author
+      `WITH dev_prs AS (
+         SELECT pr.author,
+           pr.risk_score,
+           CASE WHEN pr.risk_score >= 50 THEN 1 ELSE 0 END AS is_bad
+         FROM public.pull_requests pr
+         WHERE pr.project_id=$1
+           AND pr.risk_score IS NOT NULL
+           AND pr.analyzed_at > NOW() - INTERVAL '30 days'
        )
-       SELECT author, pr_count, critical_count, warning_count,
+       SELECT author,
+         COUNT(*) AS pr_count,
+         ROUND(AVG(risk_score))::INTEGER AS avg_risk,
          GREATEST(100
-           - ROUND(critical_count * 4.0 / GREATEST(pr_count, 1))
-           - ROUND(warning_count * 1.0 / GREATEST(pr_count, 1)), 0) AS score
-       FROM dev_stats ORDER BY score DESC`,
+           - ROUND(AVG(risk_score) * 0.6)::INTEGER
+           - ROUND(AVG(is_bad) * 40)::INTEGER
+         , 0) AS score
+       FROM dev_prs
+       GROUP BY author
+       ORDER BY score DESC`,
       [project_id]
     );
     return res.rows;
